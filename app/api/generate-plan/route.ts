@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-// import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 import { searchExercises, findExercisesByMuscleGroup } from '../../../lib/tools/wgerTools';
 import { findHealthyMeals, findHighProteinMeals } from '../../../lib/tools/nutritionTools';
 
@@ -9,11 +9,20 @@ const openaiClient = new OpenAI({
   baseURL: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
 });
 
-// Create Supabase client
-// const supabase = createClient(
- // process.env.NEXT_PUBLIC_SUPABASE_URL!,
- // process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-//);
+// Create Supabase client with error handling
+let supabase: any = null;
+try {
+  if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    );
+  } else {
+    console.warn('Supabase environment variables not found. Database features will be disabled.');
+  }
+} catch (error) {
+  console.error('Failed to initialize Supabase client:', error);
+}
 
 // IMPORTANT! Set the runtime to edge
 export const runtime = 'edge';
@@ -259,68 +268,63 @@ Make the plan challenging but achievable, with clear progression paths.`;
     console.log('OpenAI response with real data:', responseText);
 
     try {
-  const workoutPlan: WorkoutPlan = JSON.parse(responseText);
-  
-  // Just return the workout plan without saving to database
-  return new Response(JSON.stringify(workoutPlan), { headers: { 'Content-Type': 'application/json' } });
-  
-} catch (parseError) {
-  console.error('JSON parsing error:', parseError);
-  console.error('Raw response:', responseText);
+      const workoutPlan: WorkoutPlan = JSON.parse(responseText);
+      
+      // Only attempt database operations if Supabase is available
+      if (supabase) {
+        try {
+          const { data: profileData, error: profileError } = await supabase
+            .from('profiles')
+            .insert({
+              onboarding_data: {
+                name: userData.name,
+                age: userData.age,
+                height: userData.height,
+                weight: userData.weight,
+                fitnessGoals: userData.fitnessGoals,
+                experienceLevel: userData.experienceLevel,
+                gymAccess: userData.gymAccess,
+                equipment: userData.equipment,
+                injuries: userData.injuries,
+                workoutDays: userData.workoutDays,
+                gender: userData.gender || null
+              }
+            })
+            .select()
+            .single();
 
-  // Dynamic fallback plan with Day 1..N and exercise count based on experience level
-  const weeklyPlan: Record<string, any> = {};
-  const exerciseCount = userData.experienceLevel.toLowerCase() === 'beginner' ? 3 : 
-                       userData.experienceLevel.toLowerCase() === 'intermediate' ? 4 : 5;
-  
-  // ... rest of your fallback code
-}
-       // const { data: profileData, error: profileError } = await supabase
-         // .from('profiles')
-         // .insert({
-          //  onboarding_data: {
-            //  name: userData.name,
-              //age: userData.age,
-              //height: userData.height,
-              //weight: userData.weight,
-              //fitnessGoals: userData.fitnessGoals,
-              //experienceLevel: userData.experienceLevel,
-              //gymAccess: userData.gymAccess,
-              //equipment: userData.equipment,
-              //injuries: userData.injuries,
-              //workoutDays: userData.workoutDays,
-              //gender: userData.gender || null
-            //}
-          //})
-          //.select()
-          //.single();
+          if (profileError) {
+            console.error('Error saving profile:', profileError);
+            throw new Error('Failed to save profile');
+          }
 
-        //if (profileError) {
-          //console.error('Error saving profile:', profileError);
-          //throw new Error('Failed to save profile');
-        //}
+          const { data: planData, error: planError } = await supabase
+            .from('plans')
+            .insert({
+              profile_id: profileData.id,
+              plan_data: workoutPlan,
+              feedback: null
+            })
+            .select()
+            .single();
 
-       // const { data: planData, error: planError } = await supabase
-          //.from('plans')
-       //   .insert({
-         //   profile_id: profileData.id,
-           // plan_data: workoutPlan,
-       //     feedback: null
-         // })
-       //   .select()
-         // .single();
+          if (planError) {
+            console.error('Error saving plan:', planError);
+            throw new Error('Failed to save plan');
+          }
 
-    //    if (planError) {
-      //    console.error('Error saving plan:', planError);
-        //  throw new Error('Failed to save plan');
-      //  }
-
-//        const result = { ...workoutPlan, profileId: profileData.id, planId: planData.id };
-  //      return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
-    //  } catch (dbError) {
-      //  console.error('Database error:', dbError);
-      //  return new Response(JSON.stringify(workoutPlan), { headers: { 'Content-Type': 'application/json' } });
-      //}
+          const result = { ...workoutPlan, profileId: profileData.id, planId: planData.id };
+          return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
+        } catch (dbError) {
+          console.error('Database error:', dbError);
+          // Fall through to return workout plan without database IDs
+        }
+      } else {
+        console.log('Supabase not available, returning workout plan without database storage');
+      }
+      
+      // Return workout plan without database IDs if Supabase is not available or database operations failed
+      return new Response(JSON.stringify(workoutPlan), { headers: { 'Content-Type': 'application/json' } });
     } catch (parseError) {
       console.error('JSON parsing error:', parseError);
       console.error('Raw response:', responseText);
