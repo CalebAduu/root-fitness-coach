@@ -115,67 +115,100 @@ function mapGoalsToMuscles(goalsRaw: string, gender?: string): string[] {
   return Array.from(new Set(muscles));
 }
 
+// Helper function to create a timeout promise
+function createTimeoutPromise(ms: number) {
+  return new Promise((_, reject) => 
+    setTimeout(() => reject(new Error('Operation timeout')), ms)
+  );
+}
+
 export async function POST(req: Request) {
   try {
     const userData: UserData = await req.json();
 
-    // Get real exercise and nutrition data to enhance the prompt
+    // Get real exercise and nutrition data to enhance the prompt (with parallel execution and timeout)
     let exerciseData = '';
     let nutritionData = '';
     
     try {
-      // Determine muscle focus from goals + gender
-      const targetMuscles = mapGoalsToMuscles(userData.fitnessGoals, userData.gender);
+      // Run exercise and nutrition API calls in parallel with timeout
+      const [exerciseResult, nutritionResult] = await Promise.allSettled([
+        // Exercise data fetching with timeout
+        Promise.race([
+          (async () => {
+            const targetMuscles = mapGoalsToMuscles(userData.fitnessGoals, userData.gender);
+            let exerciseNames: string[] = [];
+            
+            if (targetMuscles.length > 0) {
+              const byMuscle = await findExercisesByMuscleGroup(targetMuscles, { limit: 12 });
+              if (byMuscle.success) {
+                exerciseNames = byMuscle.data.map((ex: any) => ex.name || 'Unknown').slice(0, 12);
+              }
+            }
+            
+            if (exerciseNames.length === 0) {
+              const exercisesResult = await searchExercises(userData.fitnessGoals, { limit: 12 });
+              if (exercisesResult.success) {
+                const exercises = Array.isArray(exercisesResult.data) ? exercisesResult.data : [];
+                exerciseNames = exercises.map((ex: any) => ex.name || 'Unknown').slice(0, 12);
+              }
+            }
+            
+            return exerciseNames;
+          })(),
+          createTimeoutPromise(6000) // 6 second timeout for exercises
+        ]),
+        
+        // Nutrition data fetching with timeout
+        Promise.race([
+          (async () => {
+            const goals = userData.fitnessGoals.toLowerCase();
+            let proteinSource = 'chicken';
+            let nutritionFocus = 'balanced nutrition';
+            
+            if (goals.includes('build') || goals.includes('muscle') || goals.includes('strength')) {
+              proteinSource = 'beef';
+              nutritionFocus = 'high protein diet for muscle building';
+            } else if (goals.includes('lose') || goals.includes('weight') || goals.includes('fat')) {
+              proteinSource = 'salmon';
+              nutritionFocus = 'lean protein diet for weight loss';
+            } else if (goals.includes('endurance') || goals.includes('cardio') || goals.includes('stamina')) {
+              proteinSource = 'tuna';
+              nutritionFocus = 'carbohydrate-rich diet for endurance';
+            } else if (goals.includes('recovery') || goals.includes('flexibility')) {
+              proteinSource = 'eggs';
+              nutritionFocus = 'recovery-focused nutrition';
+            }
+            if (userData.experienceLevel.toLowerCase() === 'beginner') proteinSource = 'chicken';
+            if (userData.age > 50) proteinSource = 'salmon';
 
-      let exerciseNames: string[] = [];
-      if (targetMuscles.length > 0) {
-        const byMuscle = await findExercisesByMuscleGroup(targetMuscles, { limit: 12 });
-        if (byMuscle.success) {
-          exerciseNames = byMuscle.data.map((ex: any) => ex.name || 'Unknown').slice(0, 12);
-        }
-      }
-      // Fallback to keyword search if nothing found
-      if (exerciseNames.length === 0) {
-        const exercisesResult = await searchExercises(userData.fitnessGoals, { limit: 12 });
-        if (exercisesResult.success) {
-          const exercises = Array.isArray(exercisesResult.data) ? exercisesResult.data : [];
-          exerciseNames = exercises.map((ex: any) => ex.name || 'Unknown').slice(0, 12);
-        }
-      }
-      if (exerciseNames.length > 0) {
-        exerciseData = `Available exercises for ${userData.fitnessGoals}${userData.gender ? ' (' + userData.gender + ')' : ''}: ${exerciseNames.join(', ')}`;
-      }
-      
-      // Get nutrition data (basic personalization retained)
-      const goals = userData.fitnessGoals.toLowerCase();
-      let proteinSource = 'chicken';
-      let nutritionFocus = 'balanced nutrition';
-      if (goals.includes('build') || goals.includes('muscle') || goals.includes('strength')) {
-        proteinSource = 'beef';
-        nutritionFocus = 'high protein diet for muscle building';
-      } else if (goals.includes('lose') || goals.includes('weight') || goals.includes('fat')) {
-        proteinSource = 'salmon';
-        nutritionFocus = 'lean protein diet for weight loss';
-      } else if (goals.includes('endurance') || goals.includes('cardio') || goals.includes('stamina')) {
-        proteinSource = 'tuna';
-        nutritionFocus = 'carbohydrate-rich diet for endurance';
-      } else if (goals.includes('recovery') || goals.includes('flexibility')) {
-        proteinSource = 'eggs';
-        nutritionFocus = 'recovery-focused nutrition';
-      }
-      if (userData.experienceLevel.toLowerCase() === 'beginner') proteinSource = 'chicken';
-      if (userData.age > 50) proteinSource = 'salmon';
+            const nutritionResult = await findHealthyMeals({ protein: proteinSource });
+            if (nutritionResult.success && nutritionResult.data.meals) {
+              const meals = nutritionResult.data.meals.slice(0, 3).map(meal => meal.strMeal);
+              return { meals, proteinSource, nutritionFocus };
+            }
+            return null;
+          })(),
+          createTimeoutPromise(4000) // 4 second timeout for nutrition
+        ])
+      ]);
 
-      const nutritionResult = await findHealthyMeals({ protein: proteinSource });
-      if (nutritionResult.success && nutritionResult.data.meals) {
-        const meals = nutritionResult.data.meals.slice(0, 3).map(meal => meal.strMeal);
+      // Process exercise results - only use if API succeeded
+      if (exerciseResult.status === 'fulfilled' && Array.isArray(exerciseResult.value) && exerciseResult.value.length > 0) {
+        exerciseData = `Available exercises for ${userData.fitnessGoals}${userData.gender ? ' (' + userData.gender + ')' : ''}: ${exerciseResult.value.join(', ')}`;
+      }
+
+      // Process nutrition results - only use if API succeeded
+      if (nutritionResult.status === 'fulfilled' && nutritionResult.value) {
+        const { meals, proteinSource, nutritionFocus } = nutritionResult.value;
         nutritionData = `Personalized nutrition for ${userData.fitnessGoals}: ${nutritionFocus}. Meal suggestions: ${meals.join(', ')}. Protein focus: ${proteinSource}.`;
       }
+      
     } catch (toolError) {
-      console.log('Tool data fetch failed, continuing without:', toolError);
+      console.log('Tool data fetch failed, continuing without external data:', toolError);
     }
 
-    // Create enhanced prompt with real data
+    // Create enhanced prompt with real data (only if available)
     const systemPrompt = `You are an expert fitness coach and personal trainer named "Root". 
 
 ${exerciseData ? `EXERCISE DATA: ${exerciseData}` : ''}
