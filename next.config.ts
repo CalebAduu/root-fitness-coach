@@ -1,7 +1,15 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  experimental: {
+    serverComponentsExternalPackages: ['faiss-node'],
+  },
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      config.externals.push('faiss-node');
+    }
+    return config;
+  },
 };
 
 export default nextConfig;
