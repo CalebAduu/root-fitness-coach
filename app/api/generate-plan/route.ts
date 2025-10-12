@@ -24,8 +24,8 @@ try {
   console.error('Failed to initialize Supabase client:', error);
 }
 
-// IMPORTANT! Set the runtime to edge
-export const runtime = 'edge';
+// Using Node.js runtime for better compatibility with external libraries
+export const runtime = 'nodejs';
 
 interface UserData {
   name: string;
@@ -138,7 +138,13 @@ function createTimeoutPromise(ms: number) {
 
 export async function POST(req: Request) {
   try {
+    console.log('Generate-plan API called');
     const userData: UserData = await req.json();
+    console.log('User data received:', { 
+      name: userData.name, 
+      goals: userData.fitnessGoals, 
+      workoutDays: userData.workoutDays 
+    });
 
     // Get real exercise and nutrition data to enhance the prompt (with parallel execution and timeout)
     let exerciseData = '';
@@ -426,6 +432,20 @@ Make the plan challenging but achievable, with clear progression paths.`;
     }
   } catch (error) {
     console.error('Error in generate-plan API:', error);
-    return new Response(JSON.stringify({ error: 'Failed to generate workout plan. Please try again.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    console.error('Error details:', {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      userData: userData
+    });
+    
+    // Return more detailed error information for debugging
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    return new Response(JSON.stringify({ 
+      error: 'Failed to generate workout plan. Please try again.',
+      details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
+    }), { 
+      status: 500, 
+      headers: { 'Content-Type': 'application/json' } 
+    });
   }
 }

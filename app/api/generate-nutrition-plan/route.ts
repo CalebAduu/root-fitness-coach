@@ -14,8 +14,8 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// IMPORTANT! Set the runtime to edge
-export const runtime = 'edge';
+// Using Node.js runtime for better compatibility with external libraries
+export const runtime = 'nodejs';
 
 interface NutritionData {
   goal: string;
