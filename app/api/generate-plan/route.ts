@@ -83,23 +83,37 @@ function mapGoalsToMuscles(goalsRaw: string, gender?: string): string[] {
   if (/(shoulder|delts?)/.test(goals)) muscles.push('shoulders');
   if (/(arm|bicep|tricep)/.test(goals)) muscles.push('arms');
 
-  // General intents
-  if (/(build|gain).*muscle|hypertrophy/.test(goals)) {
+  // General intents with enhanced gender-specific targeting
+  if (/(build|gain).*muscle|hypertrophy|tone|toning/.test(goals)) {
     if (gender === 'female') {
-      muscles.push('glute', 'hamstring', 'quadriceps', 'abdominals');
+      // Female-focused: prioritize lower body, glutes, and core (toning approach)
+      muscles.push('glute', 'hamstring', 'quadriceps', 'abdominals', 'calves', 'hip flexors');
     } else if (gender === 'male') {
-      muscles.push('chest', 'back', 'shoulders', 'arms');
+      // Male-focused: prioritize upper body strength
+      muscles.push('chest', 'back', 'shoulders', 'arms', 'lats');
     } else {
+      // Default balanced approach
       muscles.push('glute', 'hamstring', 'quadriceps', 'chest', 'back');
     }
   }
   if (/(lose|cut|fat|lean|tone)/.test(goals)) {
     muscles.push('full body', 'abdominals');
-    if (gender === 'female') muscles.push('glute', 'quadriceps');
+    if (gender === 'female') {
+      // Female weight loss: focus on glutes, legs, and core
+      muscles.push('glute', 'quadriceps', 'hamstring', 'calves');
+    } else if (gender === 'male') {
+      // Male weight loss: balanced with upper body emphasis
+      muscles.push('chest', 'back', 'shoulders');
+    }
   }
   if (/(general|stay fit|fitness|overall|wellness)/.test(goals)) {
-    if (gender === 'female') muscles.push('glute', 'hamstring', 'quadriceps');
-    if (gender === 'male') muscles.push('chest', 'back', 'shoulders');
+    if (gender === 'female') {
+      // Female general fitness: lower body and glute focus
+      muscles.push('glute', 'hamstring', 'quadriceps', 'abdominals', 'calves');
+    } else if (gender === 'male') {
+      // Male general fitness: upper body and core focus
+      muscles.push('chest', 'back', 'shoulders', 'arms');
+    }
   }
 
   // Deduplicate while preserving order
@@ -216,7 +230,7 @@ Guidelines:
 - Name the days sequentially as "Day 1", "Day 2", ..., "Day ${userData.workoutDays}" (do NOT use weekday names).
 - Consider their fitness goals: ${userData.fitnessGoals}${userData.gender ? ` (gender: ${userData.gender})` : ''}
 - Consider their experience level: ${userData.experienceLevel}
-- Account for injuries: ${userData.injuries.join(', ') || 'None'}
+- Account for injuries and health conditions: ${userData.injuries.join(', ') || 'None'} - Modify exercises accordingly, avoid movements that could aggravate conditions, and suggest alternatives when needed
 - Use available equipment: ${userData.gymAccess ? 'Full gym access' : 'Home equipment: ' + userData.equipment.join(', ')}
 - Age-appropriate exercises for ${userData.age} years old
 - Progressive difficulty levels based on experience:
@@ -226,17 +240,21 @@ Guidelines:
 - Each day must have a distinct focus (e.g., Lower Body, Upper Body, Push, Pull, Full Body, Conditioning & Core) without repeating the exact same focus on consecutive days.
 - Exercises should vary across days; avoid repeating the same primary lifts day-to-day unless programmed as progression.
 - Balance muscle groups across the ${userData.workoutDays} days.
-- Emphasize gender-informed programming when goals are general or weight-loss oriented:
-  * Female: Favor lower-body and glute-centric emphasis (hip thrusts, glute bridges, Bulgarian split squats, RDLs, step-ups) with balanced upper body.
-  * Male: Favor upper-body strength emphasis (bench press, rows, overhead press, pull-ups) with balanced lower body.
+- Emphasize gender-informed programming for optimal results:
+  * Female: Prioritize lower-body and glute-centric emphasis with toning-focused exercises like hip thrusts, glute bridges, Bulgarian split squats, Romanian deadlifts, step-ups, lateral lunges, sumo squats, and glute-focused movements. Include 2-3 glute-focused exercises per lower body day. Use "toning" and "strengthening" language rather than "building muscle". Balance with functional upper body work.
+  * Male: Favor upper-body strength emphasis with compound movements like bench press, rows, overhead press, pull-ups, and shoulder work. Balance with functional lower body training.
 - If the user explicitly mentions specific body parts (e.g., glutes, arms, abs), prioritize exercises that target those muscles.
 - Include proper warmup and cooldown routines
 - Provide personalized nutrition guidance based on their goals:
-  * Muscle building: High protein, moderate carbs, adequate calories
+  * Muscle building/Toning: High protein, moderate carbs, adequate calories (use "toning" language for females)
   * Weight loss: Lean protein, controlled calories, high fiber
   * Endurance: Balanced macros with focus on carbohydrates
   * General fitness: Balanced nutrition with whole foods
-- Include safety considerations
+- Include comprehensive safety considerations:
+  * If injuries or health conditions are mentioned, provide specific modifications and alternatives
+  * Include proper form cues and progression warnings
+  * Suggest consulting healthcare providers when appropriate
+  * Emphasize listening to your body and stopping if pain occurs
 
 Make the plan challenging but achievable, with clear progression paths.`;
 
@@ -257,9 +275,12 @@ Make the plan challenging but achievable, with clear progression paths.`;
 
     const responseText = response.choices[0]?.message?.content || '';
     console.log('OpenAI response with real data:', responseText);
+    console.log('Response length:', responseText.length);
+    console.log('Response starts with:', responseText.substring(0, 100));
 
     try {
       const workoutPlan: WorkoutPlan = JSON.parse(responseText);
+      console.log('✅ Successfully parsed workout plan from OpenAI');
       try {
         const { data: profileData, error: profileError } = await supabase
           .from('profiles')
@@ -308,8 +329,9 @@ Make the plan challenging but achievable, with clear progression paths.`;
         return new Response(JSON.stringify(workoutPlan), { headers: { 'Content-Type': 'application/json' } });
       }
     } catch (parseError) {
-      console.error('JSON parsing error:', parseError);
+      console.error('❌ JSON parsing error:', parseError);
       console.error('Raw response:', responseText);
+      console.log('🚨 Using fallback plan instead of real workout data');
 
       // Dynamic fallback plan with Day 1..N and exercise count based on experience level
       const weeklyPlan: Record<string, any> = {};

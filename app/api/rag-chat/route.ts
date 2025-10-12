@@ -38,19 +38,20 @@ export async function POST(request: NextRequest) {
     let response;
     
     // Route to different RAG methods based on type
+    // Use web scraper search for all types
     switch (type) {
       case 'workout':
-        response = await manager.getWorkoutSuggestions(message);
+        response = await manager.searchWorkoutInfo(message, 'workout');
         break;
       case 'form':
-        response = await manager.getExerciseForm(message);
+        response = await manager.searchWorkoutInfo(message, 'form');
         break;
       case 'nutrition':
-        response = await manager.getWorkoutNutrition(message);
+        response = await manager.searchWorkoutInfo(message, 'nutrition');
         break;
       case 'general':
       default:
-        response = await manager.askQuestion(message);
+        response = await manager.searchWorkoutInfo(message, 'general');
         break;
     }
 

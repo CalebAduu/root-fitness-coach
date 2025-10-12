@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import WhisperVoiceInput from "../../components/WhisperVoiceInput";
 
 interface Message {
   id: string;
@@ -38,6 +39,9 @@ export default function OnboardingPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
   const [userData, setUserData] = useState<UserData | null>(null);
+  const [useVoiceInput, setUseVoiceInput] = useState(false);
+  const [currentStep, setCurrentStep] = useState(1);
+  const [planProgress, setPlanProgress] = useState(0);
 
   // Function to parse user data from conversation
   const parseUserData = (messages: Message[]): UserData | null => {
@@ -205,7 +209,7 @@ export default function OnboardingPage() {
       }
 
       // Parse goals (allow free text)
-      const fitnessGoals = userMessages.find(msg => 
+      const fitnessGoalsRaw = userMessages.find(msg => 
         msg.text.toLowerCase().includes("goal") || 
         msg.text.toLowerCase().includes("want") ||
         msg.text.toLowerCase().includes("build") ||
@@ -222,18 +226,74 @@ export default function OnboardingPage() {
         msg.text.toLowerCase().includes("legs")
       )?.text || "General fitness";
 
-      // Parse gender (best-effort)
+      // Function to generalize fitness goals for display
+      const generalizeFitnessGoals = (goalsText: string, gender?: string): string => {
+        const text = goalsText.toLowerCase();
+        
+        // Check for common goal combinations
+        if (text.includes("lose") && text.includes("weight") && (text.includes("build") || text.includes("muscle") || text.includes("gain"))) {
+          return gender === 'female' ? "Lose Weight & Tone" : "Lose Weight & Build Muscle";
+        }
+        if (text.includes("lose") && text.includes("weight")) {
+          return "Lose Weight";
+        }
+        if (text.includes("build") && text.includes("muscle")) {
+          return gender === 'female' ? "Tone & Strengthen" : "Build Muscle";
+        }
+        if (text.includes("gain") && text.includes("muscle")) {
+          return gender === 'female' ? "Tone & Strengthen" : "Build Muscle";
+        }
+        if (text.includes("tone") || text.includes("toning")) {
+          return "Tone & Strengthen";
+        }
+        if (text.includes("strength") || text.includes("stronger")) {
+          return gender === 'female' ? "Build Strength & Tone" : "Build Strength";
+        }
+        if (text.includes("endurance") || text.includes("stamina")) {
+          return "Improve Endurance";
+        }
+        if (text.includes("flexibility") || text.includes("mobility")) {
+          return "Improve Flexibility";
+        }
+        if (text.includes("abs") || text.includes("core")) {
+          return gender === 'female' ? "Core Toning" : "Core Strength";
+        }
+        if (text.includes("glute") || text.includes("butt") || text.includes("booty")) {
+          return "Glute Development";
+        }
+        if (text.includes("arms") || text.includes("bicep") || text.includes("tricep")) {
+          return gender === 'female' ? "Arm Toning" : "Arm Development";
+        }
+        if (text.includes("legs") || text.includes("thigh") || text.includes("calf")) {
+          return gender === 'female' ? "Leg Toning" : "Leg Development";
+        }
+        if (text.includes("back") || text.includes("shoulder")) {
+          return gender === 'female' ? "Upper Body Toning" : "Upper Body Strength";
+        }
+        if (text.includes("cardio") || text.includes("fitness") || text.includes("health")) {
+          return "General Fitness";
+        }
+        
+        // Default fallback
+        return "General Fitness";
+      };
+
+      // Parse gender first to use in goal generalization
       const genderMessage = userMessages.find(msg => 
-        /\b(male|man|boy|guy|he\/him|he\/ his|he\b)\b/i.test(msg.text) ||
-        /\b(female|woman|girl|lady|she\/her|she\b)\b/i.test(msg.text) ||
-        msg.text.toLowerCase().includes("gender")
+        /\b(male|man|boy|guy|he\/him|he\/ his|he\b|masculine)\b/i.test(msg.text) ||
+        /\b(female|woman|girl|lady|she\/her|she\b|feminine)\b/i.test(msg.text) ||
+        msg.text.toLowerCase().includes("gender") ||
+        msg.text.toLowerCase().includes("i am a") ||
+        msg.text.toLowerCase().includes("i'm a")
       );
       let gender: string | undefined = undefined;
       if (genderMessage) {
         const t = genderMessage.text.toLowerCase();
-        if (/(female|woman|girl|lady|she\/her|she\b)/.test(t)) gender = 'female';
-        else if (/(male|man|boy|guy|he\/him|he\b)/.test(t)) gender = 'male';
+        if (/(female|woman|girl|lady|she\/her|she\b|feminine)/.test(t)) gender = 'female';
+        else if (/(male|man|boy|guy|he\/him|he\b|masculine)/.test(t)) gender = 'male';
       }
+
+      const fitnessGoals = generalizeFitnessGoals(fitnessGoalsRaw, gender);
 
       // Parse experience level (with fuzzy matching)
       const combined = userMessages.map(m => m.text.toLowerCase()).join(" ");
@@ -265,7 +325,20 @@ export default function OnboardingPage() {
       const injuries = userMessages.find(msg => 
         msg.text.toLowerCase().includes("injury") || 
         msg.text.toLowerCase().includes("pain") ||
-        msg.text.toLowerCase().includes("hurt")
+        msg.text.toLowerCase().includes("hurt") ||
+        msg.text.toLowerCase().includes("condition") ||
+        msg.text.toLowerCase().includes("health") ||
+        msg.text.toLowerCase().includes("medical") ||
+        msg.text.toLowerCase().includes("chronic") ||
+        msg.text.toLowerCase().includes("joint") ||
+        msg.text.toLowerCase().includes("back") ||
+        msg.text.toLowerCase().includes("knee") ||
+        msg.text.toLowerCase().includes("shoulder") ||
+        msg.text.toLowerCase().includes("wrist") ||
+        msg.text.toLowerCase().includes("ankle") ||
+        msg.text.toLowerCase().includes("none") ||
+        msg.text.toLowerCase().includes("no injuries") ||
+        msg.text.toLowerCase().includes("no health")
       )?.text.split(",").map(item => item.trim()) || [];
 
       // Parse workout days robustly
@@ -310,6 +383,18 @@ export default function OnboardingPage() {
   // Function to generate workout plan
   const generateWorkoutPlan = async (userData: UserData) => {
     setIsGeneratingPlan(true);
+    setCurrentStep(5);
+    
+    // Simulate progress updates
+    const progressInterval = setInterval(() => {
+      setPlanProgress(prev => {
+        if (prev >= 100) {
+          clearInterval(progressInterval);
+          return 100;
+        }
+        return prev + Math.random() * 15;
+      });
+    }, 200);
     
     try {
       const response = await fetch("/api/generate-plan", {
@@ -374,6 +459,7 @@ export default function OnboardingPage() {
       setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsGeneratingPlan(false);
+      clearInterval(progressInterval);
     }
   };
 
@@ -479,40 +565,67 @@ export default function OnboardingPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
+    <div className="min-h-screen bg-gray-900">
       {/* Header */}
-      <header className="relative overflow-hidden bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-700 shadow-2xl">
-        <div className="absolute inset-0 bg-black/10"></div>
-        <div className="relative px-6 py-8 text-center">
-          <div className="flex items-center justify-center mb-4">
-            <img src="/logo.png" alt="Root Fitness Logo" className="w-16 h-16 mr-6" />
-            <div>
-              <h1 className="text-4xl font-bold text-white mb-2">Root AI Fitness Coach</h1>
-              <p className="text-blue-100 text-lg">Your personal AI-powered fitness journey starts here</p>
+      <header className="bg-gray-900 border-b border-gray-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            {/* Logo */}
+            <div className="flex items-center">
+              <div className="flex-shrink-0 flex items-center">
+                <img src="/logo.png" alt="Root AI Logo" className="w-8 h-8 mr-3" />
+                <span className="text-white text-xl font-bold">Root AI</span>
+              </div>
+            </div>
+
+            {/* Step Indicator */}
+            <div className="flex items-center">
+              <span className="text-white text-lg font-medium">
+                {currentStep === 1 ? "Onboarding" : currentStep === 2 ? "Your Goals" : currentStep === 3 ? "Your Experience" : currentStep === 4 ? "Your Setup" : "Your Plan"}
+              </span>
+              <div className="ml-4 w-2 h-2 bg-teal-500 rounded-full"></div>
+            </div>
+
+            {/* Hamburger Menu */}
+            <div className="flex items-center">
+              <button className="text-gray-400 hover:text-white p-2">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Chat Container */}
-      <div className="max-w-4xl mx-auto px-6 py-8">
-        <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-2xl border border-white/20 overflow-hidden">
-          {/* Chat Message Area */}
-          <div className="h-[600px] p-8 overflow-y-auto bg-gradient-to-b from-white/90 to-blue-50/30">
+      {/* Main Chat Container */}
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        <div className="bg-gray-800 rounded-2xl shadow-2xl overflow-hidden">
+          {/* Chat Messages */}
+          <div className="h-[600px] p-6 overflow-y-auto">
             <div className="space-y-6">
               {messages.map((message) => (
                 <div key={message.id} className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-2xl rounded-2xl p-6 shadow-lg ${
-                    message.sender === "user" 
-                      ? "bg-gradient-to-r from-blue-500 to-blue-600 text-white" 
-                      : "bg-white text-gray-800 border border-gray-100"
-                  }`}>
-                    <p className="text-lg leading-relaxed">{message.text}</p>
-                    <p className={`text-sm mt-3 opacity-80 ${
-                      message.sender === "user" ? "text-blue-100" : "text-gray-500"
+                  <div className="flex items-start space-x-3 max-w-2xl">
+                    {message.sender === "bot" && (
+                      <div className="w-10 h-10 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0">
+                        <img src="/logo.png" alt="Root AI" className="w-6 h-6" />
+                      </div>
+                    )}
+                    
+                    <div className={`rounded-2xl p-4 ${
+                      message.sender === "user" 
+                        ? "bg-teal-500 text-white" 
+                        : "bg-gray-700 text-gray-100"
                     }`}>
-                      {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </p>
+                      <p className="text-base leading-relaxed">{message.text}</p>
+                    </div>
+
+                    {message.sender === "user" && (
+                      <div className="w-10 h-10 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0">
+                        <span className="text-white text-lg font-bold">U</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -520,26 +633,78 @@ export default function OnboardingPage() {
               {/* Loading indicator */}
               {isLoading && (
                 <div className="flex justify-start">
-                  <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100 max-w-2xl">
-                    <div className="flex items-center space-x-3">
-                      <div className="flex space-x-1">
-                        <div className="w-3 h-3 bg-blue-500 rounded-full animate-bounce"></div>
-                        <div className="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
-                        <div className="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                  <div className="flex items-start space-x-3">
+                    <div className="w-10 h-10 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0">
+                      <img src="/logo.png" alt="Root AI" className="w-6 h-6" />
+                    </div>
+                    <div className="bg-gray-700 rounded-2xl p-4">
+                      <div className="flex items-center space-x-2">
+                        <div className="flex space-x-1">
+                          <div className="w-2 h-2 bg-teal-400 rounded-full animate-bounce"></div>
+                          <div className="w-2 h-2 bg-teal-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+                          <div className="w-2 h-2 bg-teal-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                        </div>
+                        <span className="text-gray-300 text-sm">Root is thinking...</span>
                       </div>
-                      <span className="text-gray-600">Root is thinking...</span>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Plan Generation indicator */}
+              {/* Plan Generation Section */}
               {isGeneratingPlan && (
                 <div className="flex justify-start">
-                  <div className="bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-2xl p-6 shadow-lg max-w-2xl">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-5 h-5 bg-white/20 rounded-full animate-pulse"></div>
-                      <span className="font-medium">Generating your personalized workout plan... 💪</span>
+                  <div className="flex items-start space-x-3">
+                    <div className="w-10 h-10 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0">
+                      <img src="/logo.png" alt="Root AI" className="w-6 h-6" />
+                    </div>
+                    <div className="bg-gray-700 rounded-2xl p-6 max-w-md">
+                      <p className="text-gray-100 mb-4">Based on your goals, experience, and equipment, I'm now creating your personalized 'Full Body Revival' plan.</p>
+                      
+                      <div className="mb-4">
+                        <p className="text-white font-medium mb-2">Generating Plan...</p>
+                        <div className="w-full bg-gray-600 rounded-full h-2">
+                          <div 
+                            className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                            style={{ width: `${Math.min(planProgress, 100)}%` }}
+                          ></div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center space-x-2">
+                          <div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
+                            <svg className="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 8 8">
+                              <path d="M6.564.75a.75.75 0 0 1 1.06 1.06L3.06 6.314a.75.75 0 0 1-1.06 0L.44 4.694a.75.75 0 1 1 1.06-1.06l1.06 1.06L6.564.75Z"/>
+                            </svg>
+                          </div>
+                          <span className="text-green-400 text-sm">Optimize Workouts...</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <div className="w-4 h-4 bg-gray-500 rounded-full flex items-center justify-center">
+                            <span className="text-white text-xs font-bold">N</span>
+                          </div>
+                          <span className="text-gray-400 text-sm">Finalizing Nutrition...</span>
+                        </div>
+                      </div>
+
+                      {/* Decorative icons */}
+                      <div className="flex justify-end mt-4">
+                        <div className="flex space-x-1">
+                          <div className="w-6 h-6 bg-orange-500 rounded-full flex items-center justify-center">
+                            <span className="text-white text-xs font-bold">H</span>
+                          </div>
+                          <div className="w-6 h-6 bg-teal-500 rounded-full flex items-center justify-center">
+                            <span className="text-white text-xs font-bold">W</span>
+                          </div>
+                          <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
+                            <span className="text-white text-xs font-bold">N</span>
+                          </div>
+                          <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+                            <span className="text-white text-xs font-bold">P</span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -547,34 +712,91 @@ export default function OnboardingPage() {
             </div>
           </div>
 
-          {/* Input Form */}
-          <div className="bg-gradient-to-r from-gray-50 to-blue-50 p-8 border-t border-gray-100">
-            <form onSubmit={handleSubmit} className="flex space-x-4">
-              <div className="flex-1 relative">
-                <input
-                  type="text"
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  placeholder="Tell me about yourself..."
-                  className="w-full p-4 pr-12 text-lg border-0 rounded-2xl bg-white shadow-lg focus:outline-none focus:ring-4 focus:ring-blue-500/20 transition-all duration-200"
+          {/* Input Area */}
+          <div className="bg-gray-750 border-t border-gray-700 p-6">
+            {useVoiceInput ? (
+              /* Voice Input Mode */
+              <div className="flex flex-col items-center space-y-4">
+                <WhisperVoiceInput
+                  onTranscript={(text) => {
+                    setInputValue(text);
+                    // Auto-send after transcription
+                    setTimeout(() => {
+                      if (text.trim()) {
+                        handleSubmit(new Event('submit') as any);
+                      }
+                    }, 500);
+                  }}
+                  onError={(error) => {
+                    console.error('Voice input error:', error);
+                    alert(`Voice input error: ${error}`);
+                  }}
                   disabled={isLoading || isGeneratingPlan}
+                  className="flex-shrink-0"
                 />
-                <div className="absolute right-4 top-1/2 transform -translate-y-1/2">
-                  <span className="text-gray-400 text-xl">💬</span>
-                </div>
+                <p className="text-gray-400 text-sm text-center">
+                  Click the microphone to start recording your message
+                </p>
               </div>
-              <button 
-                type="submit" 
-                className={`px-8 py-4 rounded-2xl font-semibold text-lg transition-all duration-200 transform hover:scale-105 ${
-                  isLoading || isGeneratingPlan || !inputValue.trim()
-                    ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                    : "bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg hover:shadow-xl hover:from-blue-600 hover:to-purple-700"
+            ) : (
+              /* Text Input Mode */
+              <form onSubmit={handleSubmit} className="flex space-x-4">
+                <div className="flex-1 relative">
+                  <input
+                    type="text"
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    placeholder="Tell me about yourself..."
+                    className="w-full p-4 pr-12 text-gray-100 bg-gray-700 border border-gray-600 rounded-2xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 placeholder-gray-400"
+                    disabled={isLoading || isGeneratingPlan}
+                  />
+                  <div className="absolute right-4 top-1/2 transform -translate-y-1/2">
+                    <span className="text-gray-400 text-xl">💬</span>
+                  </div>
+                </div>
+                <button 
+                  type="submit" 
+                  className={`px-8 py-4 rounded-2xl font-semibold text-lg transition-all duration-200 transform hover:scale-105 ${
+                    isLoading || isGeneratingPlan || !inputValue.trim()
+                      ? "bg-gray-600 text-gray-400 cursor-not-allowed"
+                      : "bg-orange-500 text-white hover:bg-orange-600 shadow-lg hover:shadow-xl"
+                  }`}
+                  disabled={isLoading || isGeneratingPlan || !inputValue.trim()}
+                >
+                  {isGeneratingPlan ? "Generating..." : isLoading ? "Sending..." : "Send"}
+                </button>
+              </form>
+            )}
+
+            {/* Voice Input Toggle */}
+            <div className="flex items-center justify-center space-x-4 mt-4">
+              <button
+                onClick={() => setUseVoiceInput(false)}
+                className={`px-4 py-2 rounded-xl font-medium transition-all duration-200 flex items-center space-x-2 ${
+                  !useVoiceInput 
+                    ? 'bg-teal-500 text-white' 
+                    : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
                 }`}
-                disabled={isLoading || isGeneratingPlan || !inputValue.trim()}
               >
-                {isGeneratingPlan ? "Generating..." : isLoading ? "Sending..." : "Send"}
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <span>Text</span>
               </button>
-            </form>
+              <button
+                onClick={() => setUseVoiceInput(true)}
+                className={`px-4 py-2 rounded-xl font-medium transition-all duration-200 flex items-center space-x-2 ${
+                  useVoiceInput 
+                    ? 'bg-teal-500 text-white' 
+                    : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
+                }`}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                </svg>
+                <span>Voice</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

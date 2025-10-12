@@ -75,6 +75,100 @@ Published: ${content.metadata.publishDate || ''}
   }
 
   /**
+   * Add new content to existing vector store
+   */
+  async addToVectorStore(scrapedContent: ScrapedContent[]): Promise<void> {
+    try {
+      console.log(`Adding ${scrapedContent.length} documents to existing vector store...`);
+      
+      // Load existing vector store if not already loaded
+      if (!this.vectorStore) {
+        const loaded = await this.loadVectorStore();
+        if (!loaded) {
+          throw new Error('No existing vector store found. Use createVectorStore() first.');
+        }
+      }
+
+      const documents = this.contentToDocuments(scrapedContent);
+      
+      // Add documents to existing vector store
+      if (this.vectorStore) {
+        await this.vectorStore.addDocuments(documents);
+      } else {
+        throw new Error('Vector store is not initialized');
+      }
+
+      // Save the updated vector store to disk
+      await this.saveVectorStore();
+      
+      console.log(`Successfully added ${documents.length} documents to vector store`);
+    } catch (error) {
+      console.error('Error adding to vector store:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Add custom text content to vector store
+   */
+  async addCustomContent(
+    title: string, 
+    content: string, 
+    url?: string, 
+    tags?: string[], 
+    author?: string
+  ): Promise<void> {
+    try {
+      console.log(`Adding custom content: ${title}`);
+      
+      // Load existing vector store if not already loaded
+      if (!this.vectorStore) {
+        const loaded = await this.loadVectorStore();
+        if (!loaded) {
+          throw new Error('No existing vector store found. Use createVectorStore() first.');
+        }
+      }
+
+      // Create a custom document
+      const fullText = `
+Title: ${title}
+Content: ${content}
+${url ? `URL: ${url}` : ''}
+${tags ? `Tags: ${tags.join(', ')}` : ''}
+${author ? `Author: ${author}` : ''}
+      `.trim();
+
+      const document = new Document({
+        pageContent: fullText,
+        metadata: {
+          url: url || 'custom_content',
+          title: title,
+          description: content.substring(0, 200) + '...',
+          author: author || 'Custom',
+          publishDate: new Date().toISOString(),
+          tags: tags || ['custom'],
+          source: 'custom'
+        }
+      });
+
+      // Add document to vector store
+      if (this.vectorStore) {
+        await this.vectorStore.addDocuments([document]);
+      } else {
+        throw new Error('Vector store is not initialized');
+      }
+
+      // Save the updated vector store to disk
+      await this.saveVectorStore();
+      
+      console.log(`Successfully added custom content: ${title}`);
+    } catch (error) {
+      console.error('Error adding custom content:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Load existing vector store from disk
    */
   async loadVectorStore(): Promise<boolean> {

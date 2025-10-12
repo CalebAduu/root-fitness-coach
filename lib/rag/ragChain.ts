@@ -50,6 +50,73 @@ Answer: `);
   }
 
   /**
+   * Generate an answer from provided context (for RAG with external sources)
+   */
+  async generateAnswerFromContext(question: string, context: string, searchType: string = 'general'): Promise<string> {
+    try {
+      // Create a specialized prompt based on search type
+      const typeSpecificPrompt = this.createTypeSpecificPrompt(searchType);
+      
+      // Generate answer using LLM with the provided context
+      const chain = RunnableSequence.from([
+        typeSpecificPrompt,
+        this.llm
+      ]);
+
+      const response = await chain.invoke({
+        question,
+        context
+      });
+
+      return response.content as string;
+
+    } catch (error) {
+      console.error('Error generating answer from context:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a type-specific prompt template
+   */
+  private createTypeSpecificPrompt(searchType: string): PromptTemplate {
+    const baseInstructions = `
+You are "Root", a knowledgeable and encouraging AI fitness coach. Answer the user's question concisely and helpfully.
+
+Context from fitness sources:
+{context}
+
+User Question: {question}
+
+Instructions:
+1. Keep your answer SHORT and to the point (2-3 sentences max)
+2. Focus on the most important information from the context
+3. Be encouraging and motivational
+4. Prioritize safety and proper form when discussing exercises
+5. If the context doesn't contain enough information, say so briefly
+`;
+
+    let specificInstructions = '';
+    switch (searchType) {
+      case 'workout':
+        specificInstructions = 'Focus on exercise selection, workout structure, and training principles.';
+        break;
+      case 'form':
+        specificInstructions = 'Focus on proper technique, body positioning, and safety cues.';
+        break;
+      case 'nutrition':
+        specificInstructions = 'Focus on nutrition timing, macronutrients, and recovery.';
+        break;
+      default:
+        specificInstructions = 'Provide general fitness guidance and motivation.';
+    }
+
+    const fullPrompt = baseInstructions + '\n' + specificInstructions + '\n\nAnswer: ';
+
+    return PromptTemplate.fromTemplate(fullPrompt);
+  }
+
+  /**
    * Process a question through the RAG chain
    */
   async processQuestion(question: string, k: number = 4): Promise<RAGResponse> {
