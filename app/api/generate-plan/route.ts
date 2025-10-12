@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { createClient } from '@supabase/supabase-js';
+// import { createClient } from '@supabase/supabase-js'; // Commented out - not using database yet
 import { searchExercises, findExercisesByMuscleGroup } from '../../../lib/tools/wgerTools';
 import { findHealthyMeals, findHighProteinMeals } from '../../../lib/tools/nutritionTools';
 
@@ -9,20 +9,21 @@ const openaiClient = new OpenAI({
   baseURL: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
 });
 
-// Create Supabase client with error handling
+// Create Supabase client with error handling (commented out - not using database yet)
 let supabase: any = null;
-try {
-  if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-    supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    );
-  } else {
-    console.warn('Supabase environment variables not found. Database features will be disabled.');
-  }
-} catch (error) {
-  console.error('Failed to initialize Supabase client:', error);
-}
+// try {
+//   if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+//     supabase = createClient(
+//       process.env.NEXT_PUBLIC_SUPABASE_URL,
+//       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+//     );
+//   } else {
+//     console.warn('Supabase environment variables not found. Database features will be disabled.');
+//   }
+// } catch (error) {
+//   console.error('Failed to initialize Supabase client:', error);
+// }
+console.log('Supabase disabled - not using database functionality yet');
 
 // Using Node.js runtime for better compatibility with external libraries
 export const runtime = 'nodejs';

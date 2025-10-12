@@ -1,13 +1,14 @@
-import { createClient } from '@supabase/supabase-js';
+// import { createClient } from '@supabase/supabase-js'; // Commented out - not using database yet
 
-// Create Supabase client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+// Create Supabase client (commented out - not using database yet)
+// const supabase = createClient(
+//   process.env.NEXT_PUBLIC_SUPABASE_URL!,
+//   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+// );
+const supabase = null;
 
-// IMPORTANT! Set the runtime to edge
-export const runtime = 'edge';
+// Using Node.js runtime for better compatibility
+export const runtime = 'nodejs';
 
 interface FeedbackData {
   planId: string;
@@ -48,31 +49,35 @@ export async function POST(req: Request) {
       );
     }
 
-    // Update the plan with feedback
-    const { data: updatedPlan, error: updateError } = await supabase
-      .from('plans')
-      .update({
-        feedback: feedbackData.feedback,
-        rating: feedbackData.rating,
-        feedback_category: feedbackData.category,
-        feedback_timestamp: feedbackData.timestamp
-      })
-      .eq('id', feedbackData.planId)
-      .eq('profile_id', feedbackData.profileId)
-      .select()
-      .single();
+    // Update the plan with feedback (commented out - not using database yet)
+    if (supabase) {
+      const { data: updatedPlan, error: updateError } = await supabase
+        .from('plans')
+        .update({
+          feedback: feedbackData.feedback,
+          rating: feedbackData.rating,
+          feedback_category: feedbackData.category,
+          feedback_timestamp: feedbackData.timestamp
+        })
+        .eq('id', feedbackData.planId)
+        .eq('profile_id', feedbackData.profileId)
+        .select()
+        .single();
 
-    if (updateError) {
-      console.error('Error updating plan with feedback:', updateError);
-      return new Response(
-        JSON.stringify({ 
-          error: 'Failed to save feedback to database.' 
-        }),
-        { 
-          status: 500,
-          headers: { 'Content-Type': 'application/json' }
-        }
-      );
+      if (updateError) {
+        console.error('Error updating plan with feedback:', updateError);
+        return new Response(
+          JSON.stringify({ 
+            error: 'Failed to save feedback to database.' 
+          }),
+          { 
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
+          }
+        );
+      }
+    } else {
+      console.log('Feedback received (database disabled):', feedbackData);
     }
 
     // Return success response

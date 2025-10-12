@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { createClient } from '@supabase/supabase-js';
+// import { createClient } from '@supabase/supabase-js'; // Commented out - not using database yet
 import { findHealthyMeals, findHighProteinMeals, findVegetarianMeals } from '../../../lib/tools/nutritionTools';
 
 // Create an OpenAI API client
@@ -8,11 +8,12 @@ const openaiClient = new OpenAI({
   baseURL: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
 });
 
-// Create Supabase client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+// Create Supabase client (commented out for now - not using database yet)
+// const supabase = createClient(
+//   process.env.NEXT_PUBLIC_SUPABASE_URL!,
+//   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+// );
+const supabase = null;
 
 // Using Node.js runtime for better compatibility with external libraries
 export const runtime = 'nodejs';
