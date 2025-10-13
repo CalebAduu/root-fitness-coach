@@ -138,189 +138,128 @@ function createTimeoutPromise(ms: number) {
 }
 
 export async function POST(req: Request) {
+  let userData: UserData;
+  
   try {
     console.log('Generate-plan API called');
-    const userData: UserData = await req.json();
+    userData = await req.json();
     console.log('User data received:', { 
       name: userData.name, 
       goals: userData.fitnessGoals, 
       workoutDays: userData.workoutDays 
     });
 
-    // Get real exercise and nutrition data to enhance the prompt (with parallel execution and timeout)
-    let exerciseData = '';
-    let nutritionData = '';
-    
-    try {
-      // Run exercise and nutrition API calls in parallel with timeout
-      const [exerciseResult, nutritionResult] = await Promise.allSettled([
-        // Exercise data fetching with timeout
-        Promise.race([
-          (async () => {
-            const targetMuscles = mapGoalsToMuscles(userData.fitnessGoals, userData.gender);
-            let exerciseNames: string[] = [];
-            
-            if (targetMuscles.length > 0) {
-              const byMuscle = await findExercisesByMuscleGroup(targetMuscles, { limit: 12 });
-              if (byMuscle.success) {
-                exerciseNames = byMuscle.data.map((ex: any) => ex.name || 'Unknown').slice(0, 12);
-              }
-            }
-            
-            if (exerciseNames.length === 0) {
-              const exercisesResult = await searchExercises(userData.fitnessGoals, { limit: 12 });
-              if (exercisesResult.success) {
-                const exercises = Array.isArray(exercisesResult.data) ? exercisesResult.data : [];
-                exerciseNames = exercises.map((ex: any) => ex.name || 'Unknown').slice(0, 12);
-              }
-            }
-            
-            return exerciseNames;
-          })(),
-          createTimeoutPromise(6000) // 6 second timeout for exercises
-        ]),
-        
-        // Nutrition data fetching with timeout
-        Promise.race([
-          (async () => {
-            const goals = userData.fitnessGoals.toLowerCase();
-            let proteinSource = 'chicken';
-            let nutritionFocus = 'balanced nutrition';
-            
-            if (goals.includes('build') || goals.includes('muscle') || goals.includes('strength')) {
-              proteinSource = 'beef';
-              nutritionFocus = 'high protein diet for muscle building';
-            } else if (goals.includes('lose') || goals.includes('weight') || goals.includes('fat')) {
-              proteinSource = 'salmon';
-              nutritionFocus = 'lean protein diet for weight loss';
-            } else if (goals.includes('endurance') || goals.includes('cardio') || goals.includes('stamina')) {
-              proteinSource = 'tuna';
-              nutritionFocus = 'carbohydrate-rich diet for endurance';
-            } else if (goals.includes('recovery') || goals.includes('flexibility')) {
-              proteinSource = 'eggs';
-              nutritionFocus = 'recovery-focused nutrition';
-            }
-            if (userData.experienceLevel.toLowerCase() === 'beginner') proteinSource = 'chicken';
-            if (userData.age > 50) proteinSource = 'salmon';
-
-            const nutritionResult = await findHealthyMeals({ protein: proteinSource });
-            if (nutritionResult.success && nutritionResult.data.meals) {
-              const meals = nutritionResult.data.meals.slice(0, 3).map(meal => meal.strMeal);
-              return { meals, proteinSource, nutritionFocus };
-            }
-            return null;
-          })(),
-          createTimeoutPromise(4000) // 4 second timeout for nutrition
-        ])
-      ]);
-
-      // Process exercise results - only use if API succeeded
-      if (exerciseResult.status === 'fulfilled' && Array.isArray(exerciseResult.value) && exerciseResult.value.length > 0) {
-        exerciseData = `Available exercises for ${userData.fitnessGoals}${userData.gender ? ' (' + userData.gender + ')' : ''}: ${exerciseResult.value.join(', ')}`;
-      }
-
-      // Process nutrition results - only use if API succeeded
-      if (nutritionResult.status === 'fulfilled' && nutritionResult.value) {
-        const { meals, proteinSource, nutritionFocus } = nutritionResult.value;
-        nutritionData = `Personalized nutrition for ${userData.fitnessGoals}: ${nutritionFocus}. Meal suggestions: ${meals.join(', ')}. Protein focus: ${proteinSource}.`;
-      }
-      
-    } catch (toolError) {
-      console.log('Tool data fetch failed, continuing without external data:', toolError);
+    // Check if API key is available
+    if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'dummy-key') {
+      throw new Error('OpenAI API key not configured');
     }
+    
+    console.log('OpenAI API key is configured, proceeding with generation...');
 
-    // Create enhanced prompt with real data (only if available)
-    const systemPrompt = `You are an expert fitness coach and personal trainer named "Root". 
+    // Enhanced prompt for comprehensive workout plans
+    const systemPrompt = `You are an expert fitness coach. Create a comprehensive workout plan as valid JSON only. No explanations or markdown.
 
-${exerciseData ? `EXERCISE DATA: ${exerciseData}` : ''}
-${nutritionData ? `NUTRITION DATA: ${nutritionData}` : ''}
+CRITICAL: You MUST create exactly ${userData.workoutDays} workout days named "Day 1", "Day 2", etc. up to "Day ${userData.workoutDays}".
 
-Create a comprehensive, personalized workout plan based on the user's information.
-
-IMPORTANT: Return ONLY valid JSON. No conversational text, no explanations, just the structured workout plan.
-
-The response must be a JSON object with this exact structure:
+Return this exact JSON structure:
 {
   "userInfo": {
-    "name": "string",
-    "age": number,
-    "height": "string", 
-    "weight": number,
-    "fitnessGoals": "string",
-    "workoutDays": number
+    "name": "${userData.name}",
+    "age": ${userData.age},
+    "height": "${userData.height}",
+    "weight": ${userData.weight},
+    "fitnessGoals": "${userData.fitnessGoals}",
+    "workoutDays": ${userData.workoutDays}
   },
   "weeklyPlan": {
-    "Monday": {
-      "focus": "string",
+    "Day 1": {
+      "focus": "Full Body Strength",
       "exercises": [
-        {
-          "name": "string",
-          "sets": number,
-          "reps": "string",
-          "rest": "string",
-          "notes": "string (optional)"
-        }
+        {"name": "Squats", "sets": 3, "reps": "8-12", "rest": "60 seconds"},
+        {"name": "Push-ups", "sets": 3, "reps": "8-12", "rest": "60 seconds"},
+        {"name": "Lunges", "sets": 3, "reps": "10 each leg", "rest": "60 seconds"},
+        {"name": "Plank", "sets": 3, "reps": "30-45 sec", "rest": "60 seconds"}
       ],
-      "duration": "string",
-      "difficulty": "string"
+      "duration": "35-45 minutes",
+      "difficulty": "${userData.experienceLevel}"
+    },
+    "Day 2": {
+      "focus": "Upper Body & Core",
+      "exercises": [
+        {"name": "Rows", "sets": 3, "reps": "8-12", "rest": "60 seconds"},
+        {"name": "Overhead Press", "sets": 3, "reps": "8-12", "rest": "60 seconds"},
+        {"name": "Tricep Dips", "sets": 3, "reps": "8-12", "rest": "60 seconds"},
+        {"name": "Russian Twists", "sets": 3, "reps": "20 each side", "rest": "45 seconds"}
+      ],
+      "duration": "35-45 minutes",
+      "difficulty": "${userData.experienceLevel}"
     }
   },
   "recommendations": {
-    "warmup": ["string"],
-    "cooldown": ["string"],
-    "nutrition": ["string"],
-    "progression": ["string"]
+    "warmup": ["5 minutes light cardio", "Dynamic stretching", "Arm circles and leg swings"],
+    "cooldown": ["5-10 minutes static stretching", "Deep breathing", "Hydrate"],
+    "nutrition": ["Stay hydrated", "Eat protein within 30 min post-workout", "Include complex carbs", "Focus on whole foods"],
+    "progression": ["Increase weight gradually", "Prioritize form over load", "Track progress", "Take rest days"]
   },
-  "safetyNotes": ["string"]
+  "safetyNotes": ["Listen to your body", "Stop if you feel pain", "Consult doctor if needed", "Warm up properly"]
 }
 
-Guidelines:
-- Create exactly ${userData.workoutDays} workout days per week
-- Name the days sequentially as "Day 1", "Day 2", ..., "Day ${userData.workoutDays}" (do NOT use weekday names).
-- Consider their fitness goals: ${userData.fitnessGoals}${userData.gender ? ` (gender: ${userData.gender})` : ''}
-- Consider their experience level: ${userData.experienceLevel}
-- Account for injuries and health conditions: ${userData.injuries.join(', ') || 'None'} - Modify exercises accordingly, avoid movements that could aggravate conditions, and suggest alternatives when needed
-- Use available equipment: ${userData.gymAccess ? 'Full gym access' : 'Home equipment: ' + userData.equipment.join(', ')}
-- Age-appropriate exercises for ${userData.age} years old
-- Progressive difficulty levels based on experience:
-  * Beginner: Focus on form, basic movements, lower intensity, 5-6 exercises per day
-  * Intermediate: Moderate complexity, balanced intensity, 6-7 exercises per day
-  * Advanced: Complex movements, higher intensity, advanced techniques, 7-8 exercises per day
-- Each day must have a distinct focus (e.g., Lower Body, Upper Body, Push, Pull, Full Body, Conditioning & Core) without repeating the exact same focus on consecutive days.
-- Exercises should vary across days; avoid repeating the same primary lifts day-to-day unless programmed as progression.
-- Balance muscle groups across the ${userData.workoutDays} days.
-- Emphasize gender-informed programming for optimal results:
-  * Female: Prioritize lower-body and glute-centric emphasis with toning-focused exercises like hip thrusts, glute bridges, Bulgarian split squats, Romanian deadlifts, step-ups, lateral lunges, sumo squats, and glute-focused movements. Include 2-3 glute-focused exercises per lower body day. Use "toning" and "strengthening" language rather than "building muscle". Balance with functional upper body work.
-  * Male: Favor upper-body strength emphasis with compound movements like bench press, rows, overhead press, pull-ups, and shoulder work. Balance with functional lower body training.
-- If the user explicitly mentions specific body parts (e.g., glutes, arms, abs), prioritize exercises that target those muscles.
-- Include proper warmup and cooldown routines
-- Provide personalized nutrition guidance based on their goals:
-  * Muscle building/Toning: High protein, moderate carbs, adequate calories (use "toning" language for females)
-  * Weight loss: Lean protein, controlled calories, high fiber
-  * Endurance: Balanced macros with focus on carbohydrates
-  * General fitness: Balanced nutrition with whole foods
-- Include comprehensive safety considerations:
-  * If injuries or health conditions are mentioned, provide specific modifications and alternatives
-  * Include proper form cues and progression warnings
-  * Suggest consulting healthcare providers when appropriate
-  * Emphasize listening to your body and stopping if pain occurs
+REQUIREMENTS:
+- Create exactly ${userData.workoutDays} days (Day 1 through Day ${userData.workoutDays})
+- Each day should have 4-6 exercises
+- Vary the focus areas (Full Body, Upper Body, Lower Body, Cardio, Core, etc.)
+- Consider goals: ${userData.fitnessGoals}
+- Experience level: ${userData.experienceLevel}
+- Age: ${userData.age} years old
+- Equipment: ${userData.gymAccess ? 'Full gym access' : 'Home equipment: ' + (userData.equipment?.join(', ') || 'bodyweight')}
+- Injuries: ${userData.injuries?.join(', ') || 'None'}
 
-Make the plan challenging but achievable, with clear progression paths.`;
+Make each day unique with different exercises and focus areas.`;
 
-    // Ask OpenAI for a structured workout plan
-    const response = await openaiClient.chat.completions.create({
-      model: 'gpt-4o-mini',
+    // Ask OpenAI for a structured workout plan with retry logic
+    console.log('Calling OpenAI API...');
+    let response;
+    let attempts = 0;
+    const maxAttempts = 3;
+    
+    while (attempts < maxAttempts) {
+      try {
+        attempts++;
+        console.log(`OpenAI attempt ${attempts}/${maxAttempts}`);
+        
+        // Use gpt-3.5-turbo for faster response
+        const model = 'gpt-3.5-turbo';
+        const timeout = 20000; // 20 second timeout for comprehensive plans
+        
+        response = await Promise.race([
+          openaiClient.chat.completions.create({
+            model: model,
       stream: false,
       messages: [
         { role: 'system', content: systemPrompt },
         { 
           role: 'user', 
-          content: `Generate a workout plan for ${userData.name} (${userData.age} years old, ${userData.height}, ${userData.weight} lbs). Goals: ${userData.fitnessGoals}. Workout ${userData.workoutDays} days per week.` 
+                content: `Create a ${userData.workoutDays}-day workout plan for ${userData.name}. Must include ALL ${userData.workoutDays} days (Day 1 through Day ${userData.workoutDays}). Goals: ${userData.fitnessGoals}. Experience: ${userData.experienceLevel}. Age: ${userData.age}. Equipment: ${userData.gymAccess ? 'Full gym' : 'Home equipment'}.` 
         }
       ],
       temperature: 0.3,
       max_tokens: 2000,
-    });
+          }),
+          createTimeoutPromise(timeout)
+        ]);
+        
+        console.log(`✅ OpenAI API call successful on attempt ${attempts}`);
+        break;
+        
+      } catch (apiError) {
+        console.error(`❌ OpenAI API attempt ${attempts} failed:`, apiError);
+        if (attempts >= maxAttempts) {
+          throw new Error(`OpenAI API failed after ${maxAttempts} attempts: ${apiError instanceof Error ? apiError.message : 'Unknown error'}`);
+        }
+        // Wait before retry
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
+      }
+    }
 
     const responseText = response.choices[0]?.message?.content || '';
     console.log('OpenAI response with real data:', responseText);
@@ -389,54 +328,37 @@ Make the plan challenging but achievable, with clear progression paths.`;
     } catch (parseError) {
       console.error('❌ JSON parsing error:', parseError);
       console.error('Raw response:', responseText);
-      console.log('🚨 Using fallback plan instead of real workout data');
-
-      // Dynamic fallback plan with Day 1..N and exercise count based on experience level
-      const weeklyPlan: Record<string, any> = {};
-      const exerciseCount = userData.experienceLevel.toLowerCase() === 'beginner' ? 3 : 
-                           userData.experienceLevel.toLowerCase() === 'intermediate' ? 4 : 5;
+      console.error('Response length:', responseText.length);
       
-      for (let i = 1; i <= userData.workoutDays; i++) {
-        weeklyPlan[`Day ${i}`] = {
-          focus: i % 2 === 1 ? 'Full Body Strength' : 'Conditioning & Core',
-          exercises: [
-            { name: i % 2 === 1 ? 'Squats' : 'Plank', sets: 3, reps: i % 2 === 1 ? '8-12' : '45-60 sec', rest: '60 seconds' },
-            { name: i % 2 === 1 ? 'Push-ups' : 'Lunges', sets: 3, reps: '8-12', rest: '60 seconds' },
-            ...(exerciseCount > 3 ? [{ name: i % 2 === 1 ? 'Rows' : 'Mountain Climbers', sets: 3, reps: '8-12', rest: '60 seconds' }] : []),
-            ...(exerciseCount > 4 ? [{ name: i % 2 === 1 ? 'Overhead Press' : 'Burpees', sets: 3, reps: '8-12', rest: '90 seconds' }] : [])
-          ],
-          duration: '35 minutes',
-          difficulty: userData.experienceLevel || 'Beginner'
-        };
+      // Try to clean and parse the response
+      let cleanedResponse = responseText.trim();
+      
+      // Remove any markdown formatting
+      cleanedResponse = cleanedResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+      
+      // Try to find JSON object in the response
+      const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const workoutPlan: WorkoutPlan = JSON.parse(jsonMatch[0]);
+          console.log('✅ Successfully parsed cleaned JSON response');
+          
+          // Return workout plan without database IDs if Supabase is not available
+          return new Response(JSON.stringify(workoutPlan), { headers: { 'Content-Type': 'application/json' } });
+        } catch (cleanParseError) {
+          console.error('❌ Even cleaned JSON failed to parse:', cleanParseError);
+        }
       }
-
-      const fallbackPlan: WorkoutPlan = {
-        userInfo: {
-          name: userData.name,
-          age: userData.age,
-          height: userData.height,
-          weight: userData.weight,
-          fitnessGoals: userData.fitnessGoals,
-          workoutDays: userData.workoutDays,
-        },
-        weeklyPlan,
-        recommendations: {
-          warmup: ['5 minutes light cardio', 'Dynamic mobility for hips/shoulders'],
-          cooldown: ['Static stretching', 'Deep breathing'],
-          nutrition: ['Stay hydrated', 'Eat protein-rich foods'],
-          progression: ['Increase load gradually', 'Prioritize form over load']
-        },
-        safetyNotes: ['Listen to your body', 'Stop if you feel pain', 'Consult a doctor if needed']
-      };
-
-      return new Response(JSON.stringify(fallbackPlan), { headers: { 'Content-Type': 'application/json' } });
+      
+      // If all parsing attempts fail, throw an error
+      throw new Error(`Failed to parse workout plan from OpenAI response. Raw response: ${responseText.substring(0, 200)}...`);
     }
   } catch (error) {
     console.error('Error in generate-plan API:', error);
     console.error('Error details:', {
       message: error instanceof Error ? error.message : 'Unknown error',
       stack: error instanceof Error ? error.stack : undefined,
-      userData: userData
+      userData: userData ? { name: userData.name, goals: userData.fitnessGoals } : 'Not available'
     });
     
     // Return more detailed error information for debugging

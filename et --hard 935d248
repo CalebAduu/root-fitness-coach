@@ -1,0 +1,10 @@
+[33m40c6cb4[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmaster[m[33m, [m[1;31morigin/master[m[33m)[m Simplify function structure - remove complex timeout wrapper and fix syntax errors
+[33mbbefcda[m Fix function structure - properly position catch blocks for correct syntax
+[33m28b323e[m Fix syntax error - add missing closing braces for function structure
+[33m0e5aa34[m Fix timeout issues - re-add external API calls with short timeouts and 25s overall timeout
+[33m935d248[m Improve workout generator reliability - remove fallback plans, add JSON cleaning and retry mechanism
+[33mccdf46d[m Remove duplicate Ask Root section and fix nutrition button link
+[33mc97ee10[m Comment out Supabase initialization to fix build errors - not using database yet
+[33mbd30b9d[m Fix API runtime issues - switch from edge to nodejs runtime for better compatibility with external libraries
+[33m6737f15[m Resolve merge conflict in generate-plan route
+[33m1917275[m Redesign nutrition pages with white/black color scheme and add nutrition planning features
