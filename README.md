@@ -121,6 +121,9 @@ root-fitness-coach/
 - Minimal bundle size
 - Fast page loads
 
+## Pitch Deck
+https://pitch.com/v/untitled-presentation-87n8ig
+
 ## 🤝 Contributing
 
 1. Fork the repository
