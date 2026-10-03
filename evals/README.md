@@ -63,14 +63,12 @@ hooks: the runner measures its latency and estimates tokens with tiktoken (label
 .venv\Scripts\python.exe scripts\run.py --base-url https://<preview>.vercel.app --label preview
 ```
 
-Each test runs N times (default 3) because model output varies; you get pass **rates**, not single
-pass/fail results. Results are saved to `results/<timestamp>/` (git-ignored): one JSON file per run,
+Each test runs N times (default 3). Results are saved to `results/<timestamp>/` (git-ignored): one JSON file per run,
 `summary.json`, and `run_config.json` (target, app branch and commit, settings).
 
 A run is graded in this order:
 1. Deterministic checks, in code. If any fail, the judge is skipped for that run.
-2. The AI judge, only for runs that passed every code check. It returns PASS/FAIL and a one-line
-   reason per criterion; no numeric scores.
+2. The AI judge, only for runs that passed every code check.
 
 A run **passes** only if every check and every judge criterion passes. If a run fails and a
 dependency visibly broke (wger/TheMealDB errors, timeouts, 502/503/504, rate limits, judge API
