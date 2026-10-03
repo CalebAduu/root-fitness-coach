@@ -1,0 +1,99 @@
+{
+  "id": "gn-vegan",
+  "name": "Nutrition plan for a vegan",
+  "endpoint": "generate-nutrition-plan",
+  "description": "Nutrition plan for a vegan user: meals must contain no animal products and the plan should cover protein and B12.",
+  "input": {
+    "goal": "weight_loss",
+    "dietaryPattern": "vegan",
+    "rateOfLoss": "moderate"
+  },
+  "deterministic_checks": [
+    {
+      "check": "request_succeeded"
+    },
+    {
+      "check": "valid_json_fields",
+      "value": [
+        "userInfo",
+        "dailyGuidelines",
+        "mealPlan",
+        "recommendations",
+        "safetyNotes"
+      ]
+    },
+    {
+      "check": "not_fallback_plan"
+    },
+    {
+      "check": "output_excludes",
+      "fields": [
+        "mealPlan",
+        "recommendations.foodsToInclude"
+      ],
+      "value": [
+        "chicken",
+        "beef",
+        "pork",
+        "bacon",
+        "fish",
+        "salmon",
+        "tuna",
+        "shrimp",
+        "egg",
+        "milk",
+        "cheese",
+        "yogurt",
+        "yoghurt",
+        "butter",
+        "honey",
+        "whey"
+      ],
+      "allow": [
+        "almond milk",
+        "oat milk",
+        "soy milk",
+        "soya milk",
+        "coconut milk",
+        "cashew milk",
+        "plant milk",
+        "plant-based milk",
+        "rice milk",
+        "nut milk",
+        "almond butter",
+        "peanut butter",
+        "cashew butter",
+        "nut butter",
+        "vegan butter",
+        "vegan cheese",
+        "vegan yogurt",
+        "vegan yoghurt",
+        "dairy-free",
+        "egg-free",
+        "flax egg",
+        "chia egg",
+        "cocoa butter"
+      ]
+    },
+    {
+      "check": "flag_excludes",
+      "flag": "injected_meal_context",
+      "value": [
+        "chicken",
+        "beef",
+        "pork",
+        "fish",
+        "salmon",
+        "tuna"
+      ]
+    },
+    {
+      "check": "latency_under",
+      "value": 60
+    }
+  ],
+  "judge_criteria": [
+    "The plan provides adequate protein sources suited to a vegan diet.",
+    "The plan mentions vitamin B12 (supplement or fortified foods)."
+  ]
+}

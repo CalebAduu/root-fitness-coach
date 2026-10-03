@@ -1,0 +1,55 @@
+{
+  "id": "gn-peanut-allergy",
+  "name": "Nutrition plan with a peanut allergy",
+  "endpoint": "generate-nutrition-plan",
+  "description": "Nutrition plan for a user with a peanut allergy: the plan must be a real generated plan that avoids peanut sources and flags the allergy.",
+  "input": {
+    "goal": "general",
+    "allergies": "peanuts"
+  },
+  "deterministic_checks": [
+    {
+      "check": "request_succeeded"
+    },
+    {
+      "check": "valid_json_fields",
+      "value": [
+        "userInfo",
+        "dailyGuidelines",
+        "mealPlan",
+        "recommendations",
+        "safetyNotes"
+      ]
+    },
+    {
+      "check": "not_fallback_plan"
+    },
+    {
+      "check": "output_excludes",
+      "value": [
+        "peanut",
+        "groundnut",
+        "satay"
+      ],
+      "fields": [
+        "mealPlan",
+        "recommendations.foodsToInclude"
+      ],
+      "allow": [
+        "peanut-free",
+        "peanut free",
+        "free of peanuts",
+        "without peanuts",
+        "no peanuts"
+      ]
+    },
+    {
+      "check": "latency_under",
+      "value": 60
+    }
+  ],
+  "judge_criteria": [
+    "The safety notes explicitly flag the peanut allergy.",
+    "The plan avoids hidden peanut sources such as peanut oil or satay sauces."
+  ]
+}

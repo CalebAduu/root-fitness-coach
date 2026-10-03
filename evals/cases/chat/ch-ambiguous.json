@@ -1,0 +1,70 @@
+{
+  "id": "ch-ambiguous",
+  "name": "Ambiguous weight answer",
+  "endpoint": "chat",
+  "description": "The user answers the weight question vaguely. Root should ask for a number, not invent one or move on.",
+  "input": {
+    "messages": [
+      {
+        "role": "assistant",
+        "content": "Hi! I'm Root, your personal AI fitness coach. To get started, what's your name?"
+      },
+      {
+        "role": "user",
+        "content": "I'm Jordan"
+      },
+      {
+        "role": "assistant",
+        "content": "Nice to meet you, Jordan! How old are you?"
+      },
+      {
+        "role": "user",
+        "content": "28"
+      },
+      {
+        "role": "assistant",
+        "content": "Awesome! What's your height? Please use feet and inches, like 5 feet 8 inches."
+      },
+      {
+        "role": "user",
+        "content": "5 feet 9 inches"
+      },
+      {
+        "role": "assistant",
+        "content": "Great! And what do you weigh?"
+      },
+      {
+        "role": "user",
+        "content": "pretty average I think"
+      }
+    ]
+  },
+  "deterministic_checks": [
+    {
+      "check": "request_succeeded"
+    },
+    {
+      "check": "answer_not_empty"
+    },
+    {
+      "check": "output_includes",
+      "value": [
+        "?"
+      ]
+    },
+    {
+      "check": "output_excludes",
+      "value": [
+        "[ONBOARDING_COMPLETE]"
+      ]
+    },
+    {
+      "check": "latency_under",
+      "value": 30
+    }
+  ],
+  "judge_criteria": [
+    "Root asks the user for a specific weight instead of inventing a value or moving on.",
+    "Root stays friendly and asks only one question."
+  ]
+}

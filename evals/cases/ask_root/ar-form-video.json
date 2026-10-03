@@ -1,0 +1,50 @@
+{
+  "id": "ar-form-video",
+  "name": "Form video for a deadlift",
+  "endpoint": "ask-root",
+  "description": "The user asks for a form video; Root should use the demonstration tool and return usable links.",
+  "input": {
+    "message": "Show me a video of a proper deadlift.",
+    "history": [],
+    "userContext": {
+      "name": "Alex",
+      "age": 28,
+      "height": "5'10\"",
+      "weight": 170,
+      "fitnessGoals": "Build Muscle",
+      "experienceLevel": "Intermediate",
+      "gymAccess": true,
+      "equipment": [],
+      "injuries": [],
+      "workoutDays": 4
+    }
+  },
+  "deterministic_checks": [
+    {
+      "check": "request_succeeded"
+    },
+    {
+      "check": "not_fallback_answer"
+    },
+    {
+      "check": "tools_called_include",
+      "value": [
+        "search_workout_demonstrations"
+      ]
+    },
+    {
+      "check": "min_sources",
+      "value": 1
+    },
+    {
+      "check": "sources_not_all_search_links"
+    },
+    {
+      "check": "latency_under",
+      "value": 40
+    }
+  ],
+  "judge_criteria": [
+    "The answer gives usable deadlift form guidance together with a link."
+  ]
+}

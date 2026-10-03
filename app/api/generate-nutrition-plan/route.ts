@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 // import { createClient } from '@supabase/supabase-js'; // Commented out - not using database yet
 import { findHealthyMeals, findHighProteinMeals, findVegetarianMeals } from '../../../lib/tools/nutritionTools';
+import { EvalTracer, traceLlm, traceTool, usageFromOpenAI, withEval } from '../../../lib/evals/evalTrace'; // EVAL HOOK: import
 
 // Create an OpenAI API client
 const openaiClient = new OpenAI({
@@ -90,6 +91,7 @@ interface NutritionPlan {
 }
 
 export async function POST(req: Request) {
+  const tracer = EvalTracer.fromRequest(req); // EVAL HOOK: null unless EVAL_MODE + valid x-eval-token
   try {
     const nutritionData: NutritionData = await req.json();
 
@@ -100,7 +102,7 @@ export async function POST(req: Request) {
     
     try {
       // Get healthy meals
-      const healthyMealsResult = await findHealthyMeals({ limit: 5 });
+      const healthyMealsResult = await traceTool(tracer, { name: 'findHealthyMeals', args: { limit: 5 }, round: 0 }, () => findHealthyMeals({ limit: 5 })); // EVAL HOOK
       if (healthyMealsResult.success && healthyMealsResult.data.meals) {
         const meals = healthyMealsResult.data.meals.slice(0, 3).map(meal => meal.strMeal);
         mealData = `Healthy meal suggestions: ${meals.join(', ')}.`;
@@ -108,7 +110,7 @@ export async function POST(req: Request) {
 
       // Get high protein meals for sports performance
       if (nutritionData.goal === 'sports_performance') {
-        const proteinMealsResult = await findHighProteinMeals();
+        const proteinMealsResult = await traceTool(tracer, { name: 'findHighProteinMeals', args: {}, round: 0 }, () => findHighProteinMeals()); // EVAL HOOK
         if (proteinMealsResult.success && proteinMealsResult.data.meals) {
           const proteinMeals = proteinMealsResult.data.meals.slice(0, 3).map(meal => meal.strMeal);
           proteinData = `High-protein meal suggestions: ${proteinMeals.join(', ')}.`;
@@ -118,7 +120,7 @@ export async function POST(req: Request) {
       // Get vegetarian meals if applicable
       if (nutritionData.dietaryPattern?.toLowerCase().includes('vegetarian') || 
           nutritionData.dietaryPattern?.toLowerCase().includes('vegan')) {
-        const vegetarianMealsResult = await findVegetarianMeals();
+        const vegetarianMealsResult = await traceTool(tracer, { name: 'findVegetarianMeals', args: {}, round: 0 }, () => findVegetarianMeals()); // EVAL HOOK
         if (vegetarianMealsResult.success && vegetarianMealsResult.data.meals) {
           const vegetarianMeals = vegetarianMealsResult.data.meals.slice(0, 3).map(meal => meal.strMeal);
           vegetarianData = `Vegetarian meal suggestions: ${vegetarianMeals.join(', ')}.`;
@@ -127,6 +129,9 @@ export async function POST(req: Request) {
     } catch (toolError) {
       console.log('Tool data fetch failed, continuing without:', toolError);
     }
+
+    // EVAL HOOK: record the meal suggestions injected into the prompt (e.g. to spot meat dishes in a vegan prompt)
+    tracer?.note('injected_meal_context', { healthy: mealData, protein: proteinData, vegetarian: vegetarianData });
 
     // Create enhanced prompt with real data
     const systemPrompt = `You are an expert nutritionist and registered dietitian named "Root". 
@@ -233,14 +238,15 @@ export async function POST(req: Request) {
 
     Make sure the JSON is valid and complete.`;
 
-    const response = await openaiClient.chat.completions.create({
+    // EVAL HOOK: times the model call and records token usage
+    const response = await traceLlm(tracer, 'nutrition_plan', () => openaiClient.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
         { role: 'system', content: systemPrompt }
       ],
       temperature: 0.3,
       max_tokens: 3000,
-    });
+    }), usageFromOpenAI);
 
     const responseText = response.choices[0]?.message?.content || '';
     console.log('OpenAI nutrition response:', responseText);
@@ -272,7 +278,7 @@ export async function POST(req: Request) {
         // Continue without saving to database
       }
 
-      return Response.json(nutritionPlan);
+      return Response.json(withEval(tracer, nutritionPlan)); // EVAL HOOK: adds `_eval` only in eval mode
 
     } catch (parseError) {
       console.error('Failed to parse nutrition plan JSON:', parseError);
@@ -333,13 +339,17 @@ export async function POST(req: Request) {
         ]
       };
 
-      return Response.json(fallbackPlan);
+      // EVAL HOOK: record that the fallback plan path was taken
+      tracer?.note('fallback_plan_used', true);
+      tracer?.note('raw_model_output_start', responseText.slice(0, 200));
+      return Response.json(withEval(tracer, fallbackPlan)); // EVAL HOOK
     }
 
   } catch (error) {
     console.error('Error generating nutrition plan:', error);
+    tracer?.recordError(error); // EVAL HOOK: keep the failure reason for the runner
     return Response.json(
-      { error: 'Failed to generate nutrition plan' },
+      withEval(tracer, { error: 'Failed to generate nutrition plan' }), // EVAL HOOK
       { status: 500 }
     );
   }

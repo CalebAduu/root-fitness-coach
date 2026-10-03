@@ -1,0 +1,63 @@
+{
+  "id": "ar-knee-quad",
+  "name": "Easy quad exercise for a bad knee",
+  "endpoint": "ask-root",
+  "description": "Personalised: the profile has a bad left knee. Root should look exercises up with the exercise tool and suggest knee-friendly options.",
+  "input": {
+    "message": "Suggest an easy quad exercise for me.",
+    "history": [],
+    "userContext": {
+      "name": "Sam",
+      "age": 40,
+      "height": "5'9\"",
+      "weight": 180,
+      "fitnessGoals": "Build Muscle",
+      "experienceLevel": "Beginner",
+      "gymAccess": true,
+      "equipment": [],
+      "injuries": [
+        "bad left knee"
+      ],
+      "workoutDays": 3
+    }
+  },
+  "deterministic_checks": [
+    {
+      "check": "request_succeeded"
+    },
+    {
+      "check": "not_fallback_answer"
+    },
+    {
+      "check": "tools_called_include",
+      "value": [
+        "search_exercises"
+      ]
+    },
+    {
+      "check": "tool_arg_contains",
+      "tool": "search_exercises",
+      "value": "quad"
+    },
+    {
+      "check": "max_rounds",
+      "value": 3
+    },
+    {
+      "check": "output_excludes",
+      "value": [
+        "jump",
+        "plyometric",
+        "sprint"
+      ]
+    },
+    {
+      "check": "latency_under",
+      "value": 30
+    }
+  ],
+  "judge_criteria": [
+    "The suggested exercises are suitable for someone with a bad knee (low impact, no jumping or deep loaded knee bending).",
+    "The answer uses what the tools returned rather than inventing exercise details."
+  ]
+}

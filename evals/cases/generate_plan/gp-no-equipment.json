@@ -1,0 +1,72 @@
+{
+  "id": "gp-no-equipment",
+  "name": "Workout plan with no equipment",
+  "endpoint": "generate-plan",
+  "description": "Workout plan for a user with no gym and no equipment: every exercise should be doable with bodyweight only.",
+  "input": {
+    "name": "Riley",
+    "age": 30,
+    "height": "5'6\"",
+    "weight": 150,
+    "fitnessGoals": "Tone",
+    "experienceLevel": "Beginner",
+    "gymAccess": false,
+    "equipment": [],
+    "injuries": [],
+    "workoutDays": 3,
+    "gender": "female"
+  },
+  "deterministic_checks": [
+    {
+      "check": "request_succeeded"
+    },
+    {
+      "check": "valid_json_fields",
+      "value": [
+        "userInfo",
+        "weeklyPlan",
+        "recommendations",
+        "safetyNotes"
+      ]
+    },
+    {
+      "check": "plan_day_count",
+      "value": 3
+    },
+    {
+      "check": "exercises_per_day_between",
+      "value": [
+        4,
+        6
+      ]
+    },
+    {
+      "check": "exercises_exclude_keywords",
+      "value": [
+        "barbell",
+        "dumbbell",
+        "machine",
+        "cable",
+        "bench",
+        "kettlebell",
+        "pull-up",
+        "pull up",
+        "pullup",
+        "lat pulldown",
+        "leg press",
+        "resistance band"
+      ]
+    },
+    {
+      "check": "prompt_example_overlap_max",
+      "value": 2
+    },
+    {
+      "check": "latency_under",
+      "value": 60
+    }
+  ],
+  "judge_criteria": [
+    "Every exercise can realistically be done at home with no equipment (bodyweight only)."
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "id": "ar-multi-tool",
+  "name": "One question needing exercise and meal tools",
+  "endpoint": "ask-root",
+  "description": "Needs the exercise tool AND a meal tool in the same turn.",
+  "input": {
+    "message": "Suggest a dumbbell chest exercise and a high-protein dinner.",
+    "history": [],
+    "userContext": {
+      "name": "Alex",
+      "age": 28,
+      "height": "5'10\"",
+      "weight": 170,
+      "fitnessGoals": "Build Muscle",
+      "experienceLevel": "Intermediate",
+      "gymAccess": true,
+      "equipment": [],
+      "injuries": [],
+      "workoutDays": 4
+    }
+  },
+  "deterministic_checks": [
+    {
+      "check": "request_succeeded"
+    },
+    {
+      "check": "not_fallback_answer"
+    },
+    {
+      "check": "tools_called_include",
+      "value": [
+        "search_exercises"
+      ]
+    },
+    {
+      "check": "tools_called_include_any",
+      "value": [
+        "find_high_protein_meals",
+        "find_meals_by_ingredient",
+        "search_meals_by_name",
+        "find_healthy_meals"
+      ]
+    },
+    {
+      "check": "min_successful_tool_calls",
+      "value": 2
+    },
+    {
+      "check": "max_rounds",
+      "value": 4
+    },
+    {
+      "check": "latency_under",
+      "value": 40
+    }
+  ],
+  "judge_criteria": [
+    "The answer covers both parts of the question: an exercise and a dinner.",
+    "The named exercise and meal come from the tool results rather than being invented."
+  ]
+}

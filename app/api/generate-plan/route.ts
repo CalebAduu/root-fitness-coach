@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 // import { createClient } from '@supabase/supabase-js'; // Commented out - not using database yet
 import { searchExercises, findExercisesByMuscleGroup } from '../../../lib/tools/wgerTools';
 import { findHealthyMeals, findHighProteinMeals } from '../../../lib/tools/nutritionTools';
+import { EvalTracer, traceLlm, usageFromOpenAI, withEval } from '../../../lib/evals/evalTrace'; // EVAL HOOK: import
 
 // Create an OpenAI API client
 const openaiClient = new OpenAI({
@@ -74,6 +75,78 @@ interface WorkoutPlan {
   safetyNotes: string[];
 }
 
+// JSON schema for OpenAI structured outputs, mirroring the WorkoutPlan interface.
+// weeklyPlan uses a fixed Day1..Day6 shape (with Day N keys unused by the prompt left
+// as empty-string placeholders) since json_schema strict mode requires static properties.
+const dayKeys = Array.from({ length: 7 }, (_, i) => `Day ${i + 1}`);
+const daySchema = {
+  type: 'object',
+  properties: {
+    focus: { type: 'string' },
+    exercises: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          sets: { type: 'number' },
+          reps: { type: 'string' },
+          rest: { type: 'string' },
+          notes: { type: ['string', 'null'] },
+        },
+        required: ['name', 'sets', 'reps', 'rest', 'notes'],
+        additionalProperties: false,
+      },
+    },
+    duration: { type: 'string' },
+    difficulty: { type: 'string' },
+  },
+  required: ['focus', 'exercises', 'duration', 'difficulty'],
+  additionalProperties: false,
+};
+
+function buildWorkoutPlanSchema(workoutDays: number) {
+  const activeDayKeys = dayKeys.slice(0, Math.max(1, Math.min(workoutDays, 7)));
+  return {
+    type: 'object',
+    properties: {
+      userInfo: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          age: { type: 'number' },
+          height: { type: 'string' },
+          weight: { type: 'number' },
+          fitnessGoals: { type: 'string' },
+          workoutDays: { type: 'number' },
+        },
+        required: ['name', 'age', 'height', 'weight', 'fitnessGoals', 'workoutDays'],
+        additionalProperties: false,
+      },
+      weeklyPlan: {
+        type: 'object',
+        properties: Object.fromEntries(activeDayKeys.map((key) => [key, daySchema])),
+        required: activeDayKeys,
+        additionalProperties: false,
+      },
+      recommendations: {
+        type: 'object',
+        properties: {
+          warmup: { type: 'array', items: { type: 'string' } },
+          cooldown: { type: 'array', items: { type: 'string' } },
+          nutrition: { type: 'array', items: { type: 'string' } },
+          progression: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['warmup', 'cooldown', 'nutrition', 'progression'],
+        additionalProperties: false,
+      },
+      safetyNotes: { type: 'array', items: { type: 'string' } },
+    },
+    required: ['userInfo', 'weeklyPlan', 'recommendations', 'safetyNotes'],
+    additionalProperties: false,
+  };
+}
+
 function normalizeGoals(goalsRaw: string): string {
   return goalsRaw.toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -138,6 +211,7 @@ function createTimeoutPromise(ms: number) {
 }
 
 export async function POST(req: Request) {
+  const tracer = EvalTracer.fromRequest(req); // EVAL HOOK: null unless EVAL_MODE + valid x-eval-token
   let userData: UserData;
   
   try {
@@ -226,25 +300,33 @@ Make each day unique with different exercises and focus areas.`;
       try {
         attempts++;
         console.log(`OpenAI attempt ${attempts}/${maxAttempts}`);
-        
-        // Use gpt-3.5-turbo for faster response
-        const model = 'gpt-3.5-turbo';
+
+        const model = 'gpt-4o-mini';
         const timeout = 20000; // 20 second timeout for comprehensive plans
-        
+
         response = await Promise.race([
-          openaiClient.chat.completions.create({
+          // EVAL HOOK: times this attempt and records token usage (one entry per retry)
+          traceLlm(tracer, `plan_attempt_${attempts}`, () => openaiClient.chat.completions.create({
             model: model,
       stream: false,
       messages: [
         { role: 'system', content: systemPrompt },
-        { 
-          role: 'user', 
-                content: `Create a ${userData.workoutDays}-day workout plan for ${userData.name}. Must include ALL ${userData.workoutDays} days (Day 1 through Day ${userData.workoutDays}). Goals: ${userData.fitnessGoals}. Experience: ${userData.experienceLevel}. Age: ${userData.age}. Equipment: ${userData.gymAccess ? 'Full gym' : 'Home equipment'}.` 
+        {
+          role: 'user',
+                content: `Create a ${userData.workoutDays}-day workout plan for ${userData.name}. Must include ALL ${userData.workoutDays} days (Day 1 through Day ${userData.workoutDays}). Goals: ${userData.fitnessGoals}. Experience: ${userData.experienceLevel}. Age: ${userData.age}. Equipment: ${userData.gymAccess ? 'Full gym' : 'Home equipment'}.`
         }
       ],
       temperature: 0.3,
       max_tokens: 2000,
-          }),
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'workout_plan',
+          strict: true,
+          schema: buildWorkoutPlanSchema(userData.workoutDays),
+        },
+      },
+          }), usageFromOpenAI),
           createTimeoutPromise(timeout)
         ]);
         
@@ -259,6 +341,11 @@ Make each day unique with different exercises and focus areas.`;
         // Wait before retry
         await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
       }
+    }
+
+    const refusal = response.choices[0]?.message?.refusal;
+    if (refusal) {
+      throw new Error(`OpenAI refused the request: ${refusal}`);
     }
 
     const responseText = response.choices[0]?.message?.content || '';
@@ -324,33 +411,14 @@ Make each day unique with different exercises and focus areas.`;
       }
       
       // Return workout plan without database IDs if Supabase is not available or database operations failed
-      return new Response(JSON.stringify(workoutPlan), { headers: { 'Content-Type': 'application/json' } });
+      // EVAL HOOK: adds `_eval` to the body only in eval mode (the Supabase branch above is unreachable while it is disabled)
+      return new Response(JSON.stringify(withEval(tracer, workoutPlan)), { headers: { 'Content-Type': 'application/json' } });
     } catch (parseError) {
+      // With response_format: json_schema + strict mode, OpenAI guarantees valid JSON
+      // matching the schema, so a parse failure here means the model refused the
+      // request (responseText holds the refusal text) rather than malformed output.
       console.error('❌ JSON parsing error:', parseError);
       console.error('Raw response:', responseText);
-      console.error('Response length:', responseText.length);
-      
-      // Try to clean and parse the response
-      let cleanedResponse = responseText.trim();
-      
-      // Remove any markdown formatting
-      cleanedResponse = cleanedResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-      
-      // Try to find JSON object in the response
-      const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        try {
-          const workoutPlan: WorkoutPlan = JSON.parse(jsonMatch[0]);
-          console.log('✅ Successfully parsed cleaned JSON response');
-          
-          // Return workout plan without database IDs if Supabase is not available
-          return new Response(JSON.stringify(workoutPlan), { headers: { 'Content-Type': 'application/json' } });
-        } catch (cleanParseError) {
-          console.error('❌ Even cleaned JSON failed to parse:', cleanParseError);
-        }
-      }
-      
-      // If all parsing attempts fail, throw an error
       throw new Error(`Failed to parse workout plan from OpenAI response. Raw response: ${responseText.substring(0, 200)}...`);
     }
   } catch (error) {
@@ -363,10 +431,11 @@ Make each day unique with different exercises and focus areas.`;
     
     // Return more detailed error information for debugging
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    return new Response(JSON.stringify({ 
+    tracer?.recordError(error); // EVAL HOOK: keep the failure reason for the runner
+    return new Response(JSON.stringify(withEval(tracer, { // EVAL HOOK
       error: 'Failed to generate workout plan. Please try again.',
       details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
-    }), { 
+    })), { 
       status: 500, 
       headers: { 'Content-Type': 'application/json' } 
     });

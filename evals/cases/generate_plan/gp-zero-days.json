@@ -1,0 +1,34 @@
+{
+  "id": "gp-zero-days",
+  "name": "Zero workout days (invalid input)",
+  "endpoint": "generate-plan",
+  "description": "workoutDays=0. Expected: a clean rejection (400/422) or a plan with 1-7 days. Never a crash or an empty plan.",
+  "input": {
+    "name": "Alex",
+    "age": 28,
+    "height": "5'10\"",
+    "weight": 170,
+    "fitnessGoals": "Build Muscle",
+    "experienceLevel": "Intermediate",
+    "gymAccess": true,
+    "equipment": [],
+    "injuries": [],
+    "workoutDays": 0
+  },
+  "deterministic_checks": [
+    {
+      "check": "plan_or_clean_rejection",
+      "reject_statuses": [
+        400,
+        422
+      ],
+      "min_days": 1,
+      "max_days": 7
+    },
+    {
+      "check": "latency_under",
+      "value": 60
+    }
+  ],
+  "judge_criteria": []
+}

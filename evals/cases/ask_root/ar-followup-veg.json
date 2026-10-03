@@ -1,0 +1,52 @@
+{
+  "id": "ar-followup-veg",
+  "name": "Follow-up: vegetarian version",
+  "endpoint": "ask-root",
+  "description": "Follow-up question that relies on the earlier Q&A history: the user asks for a vegetarian version of the previous dinner idea.",
+  "input": {
+    "message": "What about a vegetarian version?",
+    "history": [
+      {
+        "question": "Give me a high protein dinner idea.",
+        "answer": "Try Brown Stew Chicken - it's packed with protein! Recipe: https://www.themealdb.com/meal/52940"
+      }
+    ],
+    "userContext": {
+      "name": "Alex",
+      "age": 28,
+      "height": "5'10\"",
+      "weight": 170,
+      "fitnessGoals": "Build Muscle",
+      "experienceLevel": "Intermediate",
+      "gymAccess": true,
+      "equipment": [],
+      "injuries": [],
+      "workoutDays": 4
+    }
+  },
+  "deterministic_checks": [
+    {
+      "check": "request_succeeded"
+    },
+    {
+      "check": "not_fallback_answer"
+    },
+    {
+      "check": "tools_called_include_any",
+      "value": [
+        "find_vegetarian_meals",
+        "find_meals_by_ingredient",
+        "search_meals_by_name",
+        "find_healthy_meals"
+      ]
+    },
+    {
+      "check": "latency_under",
+      "value": 40
+    }
+  ],
+  "judge_criteria": [
+    "The dinner suggested is actually vegetarian (no meat or fish).",
+    "The answer builds on the earlier conversation about a high-protein dinner."
+  ]
+}

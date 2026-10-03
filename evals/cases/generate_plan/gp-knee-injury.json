@@ -1,0 +1,68 @@
+{
+  "id": "gp-knee-injury",
+  "name": "Workout plan with a bad knee",
+  "endpoint": "generate-plan",
+  "description": "Workout plan for a user with a knee injury: exercise choices should respect the injury and the plan should be tailored to the profile.",
+  "input": {
+    "name": "Sam",
+    "age": 40,
+    "height": "5'9\"",
+    "weight": 180,
+    "fitnessGoals": "Build Muscle",
+    "experienceLevel": "Beginner",
+    "gymAccess": true,
+    "equipment": [],
+    "injuries": [
+      "bad left knee"
+    ],
+    "workoutDays": 4
+  },
+  "deterministic_checks": [
+    {
+      "check": "request_succeeded"
+    },
+    {
+      "check": "valid_json_fields",
+      "value": [
+        "userInfo",
+        "weeklyPlan",
+        "recommendations",
+        "safetyNotes"
+      ]
+    },
+    {
+      "check": "plan_day_count",
+      "value": 4
+    },
+    {
+      "check": "exercises_per_day_between",
+      "value": [
+        4,
+        6
+      ]
+    },
+    {
+      "check": "exercises_exclude_keywords",
+      "value": [
+        "lunge",
+        "jump",
+        "burpee",
+        "plyo",
+        "sprint",
+        "pistol"
+      ]
+    },
+    {
+      "check": "prompt_example_overlap_max",
+      "value": 2
+    },
+    {
+      "check": "latency_under",
+      "value": 60
+    }
+  ],
+  "judge_criteria": [
+    "The plan is suitable for someone with a bad left knee.",
+    "The safety notes mention the knee injury specifically."
+  ]
+}

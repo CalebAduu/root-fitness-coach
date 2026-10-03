@@ -1,0 +1,108 @@
+{
+  "id": "ch-completion-token",
+  "name": "Completion token after the last answer",
+  "endpoint": "chat",
+  "description": "Regression test: after all 10 answers the reply must end with the [ONBOARDING_COMPLETE] control token, otherwise the app never redirects.",
+  "input": {
+    "messages": [
+      {
+        "role": "assistant",
+        "content": "Hi! I'm Root, your personal AI fitness coach. To get started, what's your name?"
+      },
+      {
+        "role": "user",
+        "content": "My name is Jordan"
+      },
+      {
+        "role": "assistant",
+        "content": "Great to meet you, Jordan! How old are you?"
+      },
+      {
+        "role": "user",
+        "content": "28"
+      },
+      {
+        "role": "assistant",
+        "content": "Awesome! What's your height? Please use feet and inches."
+      },
+      {
+        "role": "user",
+        "content": "5 feet 9 inches"
+      },
+      {
+        "role": "assistant",
+        "content": "Perfect! What do you weigh?"
+      },
+      {
+        "role": "user",
+        "content": "180 lbs"
+      },
+      {
+        "role": "assistant",
+        "content": "Thanks! Are you male or female?"
+      },
+      {
+        "role": "user",
+        "content": "male"
+      },
+      {
+        "role": "assistant",
+        "content": "Got it! What are your fitness goals?"
+      },
+      {
+        "role": "user",
+        "content": "I want to build muscle"
+      },
+      {
+        "role": "assistant",
+        "content": "Great goal! What's your experience level: beginner, intermediate, or advanced?"
+      },
+      {
+        "role": "user",
+        "content": "intermediate"
+      },
+      {
+        "role": "assistant",
+        "content": "Nice! Do you have access to a gym? If not, what equipment do you have?"
+      },
+      {
+        "role": "user",
+        "content": "yes, full gym access"
+      },
+      {
+        "role": "assistant",
+        "content": "Perfect! Any current injuries, past injuries, or health conditions I should know about? This is important for safety."
+      },
+      {
+        "role": "user",
+        "content": "none, I'm healthy"
+      },
+      {
+        "role": "assistant",
+        "content": "That's great! How many days a week can you work out?"
+      },
+      {
+        "role": "user",
+        "content": "4 days a week"
+      }
+    ]
+  },
+  "deterministic_checks": [
+    {
+      "check": "request_succeeded"
+    },
+    {
+      "check": "output_includes",
+      "value": [
+        "[ONBOARDING_COMPLETE]"
+      ]
+    },
+    {
+      "check": "latency_under",
+      "value": 30
+    }
+  ],
+  "judge_criteria": [
+    "Root celebrates the user finishing onboarding in about three sentences or fewer."
+  ]
+}

@@ -43,3 +43,8 @@ next-env.d.ts
 # RAG system data
 /data/vectorstore/
 /lib/rag/test*.ts
+
+# Eval suite outputs and Python env
+/evals/results/
+/evals/.venv/
+__pycache__/

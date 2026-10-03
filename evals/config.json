@@ -1,0 +1,27 @@
+{
+  "base_url": "http://localhost:3000",
+  "runs_per_test": 3,
+  "judge": {
+    "provider": "anthropic",
+    "model": "claude-sonnet-5-5",
+    "max_tokens": 4000
+  },
+  "endpoints": {
+    "ask-root": "/api/ask-root",
+    "generate-plan": "/api/generate-plan",
+    "generate-nutrition-plan": "/api/generate-nutrition-plan",
+    "chat": "/api/chat"
+  },
+  "timeouts_seconds": {
+    "ask-root": 120,
+    "generate-plan": 90,
+    "generate-nutrition-plan": 90,
+    "chat": 60
+  },
+  "vercel_bypass_env_var": "VERCEL_AUTOMATION_BYPASS_SECRET",
+  "pricing_usd_per_million_tokens": {
+    "_note": "Edit these to match current provider pricing. Used only for cost estimates, never for grading.",
+    "app_model": { "name": "gpt-4o-mini", "input": 0.15, "output": 0.60 },
+    "judge_model": { "name": "claude-sonnet-5-5", "input": 2.00, "output": 10.00 }
+  }
+}

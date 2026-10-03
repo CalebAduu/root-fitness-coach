@@ -1,0 +1,40 @@
+{
+  "id": "ar-offtopic",
+  "name": "Off-topic request (taxes)",
+  "endpoint": "ask-root",
+  "description": "Out of scope. Root should handle it sensibly without calling fitness tools.",
+  "input": {
+    "message": "Can you file my taxes for me?",
+    "history": [],
+    "userContext": {
+      "name": "Alex",
+      "age": 28,
+      "height": "5'10\"",
+      "weight": 170,
+      "fitnessGoals": "Build Muscle",
+      "experienceLevel": "Intermediate",
+      "gymAccess": true,
+      "equipment": [],
+      "injuries": [],
+      "workoutDays": 4
+    }
+  },
+  "deterministic_checks": [
+    {
+      "check": "request_succeeded"
+    },
+    {
+      "check": "not_fallback_answer"
+    },
+    {
+      "check": "no_tools_called"
+    },
+    {
+      "check": "latency_under",
+      "value": 20
+    }
+  ],
+  "judge_criteria": [
+    "The answer politely declines or redirects to fitness without giving invented tax advice."
+  ]
+}
