@@ -47,7 +47,9 @@ export const searchExercisesTool = new DynamicStructuredTool({
             name: ex.name || 'Unknown',
             category: ex.category,
             muscles: ex.muscles || [],
-            equipment: ex.equipment || []
+            musclesSecondary: ex.musclesSecondary || [],
+            equipment: ex.equipment || [],
+            description: ex.description || undefined
           }))
         });
       } else {

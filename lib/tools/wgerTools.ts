@@ -147,6 +147,79 @@ async function makeWgerRequest<T>(endpoint: string, params?: Record<string, stri
 }
 
 // Core WGER API Functions
+
+// wger's text-search endpoints no longer filter results, so we pull the full English
+// exercise list once, keep a slim copy in memory, and search it locally.
+export interface WgerExerciseSummary {
+  id: number;
+  name: string;
+  category: string;
+  muscles: string[];
+  musclesSecondary: string[];
+  equipment: string[];
+  description: string;
+  muscleIds: number[];
+  equipmentIds: number[];
+  categoryId: number | null;
+}
+
+let exerciseIndexPromise: Promise<WgerExerciseSummary[]> | null = null;
+
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+async function loadExerciseIndex(): Promise<WgerExerciseSummary[]> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch(`${WGER_CONFIG.baseUrl}/exerciseinfo/?language=2&limit=1000&format=json`, {
+      headers: WGER_CONFIG.headers,
+      signal: controller.signal
+    });
+    if (!response.ok) throw new Error(`WGER API error: ${response.status} ${response.statusText}`);
+    const data = await response.json();
+
+    return (data.results as any[])
+      .map((e) => {
+        const translation = (e.translations || []).find((t: any) => t.language === 2);
+        if (!translation?.name) return null;
+        return {
+          id: e.id,
+          name: translation.name,
+          category: e.category?.name ?? '',
+          categoryId: e.category?.id ?? null,
+          muscles: (e.muscles || []).map((m: any) => m.name_en || m.name),
+          musclesSecondary: (e.muscles_secondary || []).map((m: any) => m.name_en || m.name),
+          equipment: (e.equipment || []).map((q: any) => q.name),
+          description: stripHtml(translation.description || '').slice(0, 240),
+          muscleIds: (e.muscles || []).map((m: any) => m.id),
+          equipmentIds: (e.equipment || []).map((q: any) => q.id),
+        } as WgerExerciseSummary;
+      })
+      .filter((e): e is WgerExerciseSummary => e !== null);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function getExerciseIndex(): Promise<WgerExerciseSummary[]> {
+  if (!exerciseIndexPromise) {
+    exerciseIndexPromise = loadExerciseIndex().catch((err) => {
+      exerciseIndexPromise = null; // allow a retry on the next call
+      throw err;
+    });
+  }
+  return exerciseIndexPromise;
+}
+
+const SEARCH_STOP_WORDS = new Set([
+  'exercise', 'exercises', 'workout', 'workouts', 'for', 'the', 'a', 'an', 'good', 'best', 'to', 'do',
+  'with', 'at', 'in', 'my', 'and', 'of', 'some', 'any', 'me', 'on', 'training'
+]);
+
+const stem = (word: string) => word.replace(/(ing|es|s)$/, '');
+
 export async function searchExercises(
   query: string,
   options: {
@@ -155,17 +228,57 @@ export async function searchExercises(
     equipment?: string;
     limit?: number;
   } = {}
-): Promise<WgerResult<WgerExercise[]>> {
-  const params: Record<string, string> = {
-    search: query,
-    limit: (options.limit || 10).toString()
-  };
+): Promise<WgerResult<WgerExerciseSummary[]>> {
+  try {
+    const index = await getExerciseIndex();
+    const limit = options.limit || 10;
+    const tokens = query
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((t) => t && !SEARCH_STOP_WORDS.has(t))
+      .map(stem)
+      .filter(Boolean);
+    const phrase = query.toLowerCase().trim();
 
-  if (options.category) params.category = options.category;
-  if (options.muscle) params.muscles = options.muscle;
-  if (options.equipment) params.equipment = options.equipment;
+    const scored = index
+      .filter((e) => {
+        if (options.muscle && !e.muscleIds.includes(Number(options.muscle))) return false;
+        if (options.equipment && !e.equipmentIds.includes(Number(options.equipment))) return false;
+        if (options.category && String(e.categoryId) !== options.category) return false;
+        return true;
+      })
+      .map((e) => {
+        const name = e.name.toLowerCase();
+        const primary = e.muscles.join(' ').toLowerCase();
+        const secondary = e.musclesSecondary.join(' ').toLowerCase();
+        const equip = e.equipment.join(' ').toLowerCase();
+        const cat = e.category.toLowerCase();
 
-  return makeWgerRequest<WgerExercise[]>('/exercise/', params);
+        let score = tokens.length === 0 ? 1 : 0;
+        if (phrase && name.includes(phrase)) score += 5;
+        for (const t of tokens) {
+          if (name.includes(t)) score += 3;
+          if (primary.includes(t)) score += 2;
+          if (secondary.includes(t)) score += 1;
+          if (equip.includes(t)) score += 2;
+          if (cat.includes(t)) score += 1.5;
+        }
+        return { e, score };
+      })
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score || a.e.name.length - b.e.name.length);
+
+    return {
+      success: true,
+      data: scored.slice(0, limit).map((x) => x.e),
+      count: scored.length
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? `WGER exercise lookup failed: ${error.message}` : 'WGER exercise lookup failed'
+    };
+  }
 }
 
 export async function getExerciseDetails(exerciseId: number): Promise<WgerResult<WgerExercise>> {
@@ -196,7 +309,7 @@ export async function findExercisesByMuscleGroup(
     equipment?: string;
     limit?: number;
   } = {}
-): Promise<WgerResult<WgerExercise[]>> {
+): Promise<WgerResult<WgerExerciseSummary[]>> {
   // First, get all muscles to find the correct IDs
   const musclesResult = await getMuscles();
   if (!musclesResult.success) {
@@ -221,7 +334,7 @@ export async function findExercisesByMuscleGroup(
   }
 
   // Search exercises for each muscle group
-  const allExercises: WgerExercise[] = [];
+  const allExercises: WgerExerciseSummary[] = [];
   for (const muscleId of muscleIds) {
     const result = await searchExercises('', {
       ...options,
