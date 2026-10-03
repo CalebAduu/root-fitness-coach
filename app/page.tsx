@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { AppleIcon, TargetIcon, TrendingUpIcon } from "../components/icons";
 
 export default function Home() {
   const router = useRouter();
@@ -21,7 +22,7 @@ export default function Home() {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
               <div className="flex-shrink-0">
-                <img src="/logo.png" alt="Root Fitness Logo" className="w-10 h-10" />
+                <img src="/logo.png" alt="Root Fitness Logo" className="w-12 h-12 object-contain" />
               </div>
               <div className="ml-3">
                 <h1 className="text-2xl font-bold text-white">ROOT FITNESS</h1>
@@ -83,7 +84,7 @@ export default function Home() {
               <button 
                 onClick={handleGetStarted}
                 disabled={isLoading}
-                className="bg-orange-400 text-white px-12 py-6 rounded-lg font-semibold text-xl hover:bg-orange-500 transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed shadow-2xl"
+                className="bg-gradient-to-r from-orange-400 to-amber-500 text-white px-12 py-6 rounded-lg font-semibold text-xl hover:from-orange-500 hover:to-amber-600 transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed shadow-2xl"
               >
                 {isLoading ? (
                   <>
@@ -196,24 +197,24 @@ export default function Home() {
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <div className="text-center p-8 bg-slate-800 rounded-2xl hover:bg-slate-700 transition-all duration-300">
-              <div className="w-16 h-16 bg-orange-400 rounded-full flex items-center justify-center mx-auto mb-6">
-                <span className="text-2xl">🎯</span>
+              <div className="w-16 h-16 bg-gradient-to-br from-orange-400 to-amber-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg shadow-orange-500/20">
+                <TargetIcon className="w-7 h-7 text-white" />
               </div>
               <h3 className="text-xl font-bold text-white mb-4">Personalized Plans</h3>
               <p className="text-slate-300 leading-relaxed">AI-generated workout programs designed specifically for your goals, experience level, and available equipment.</p>
             </div>
-            
+
             <div className="text-center p-8 bg-slate-800 rounded-2xl hover:bg-slate-700 transition-all duration-300">
-              <div className="w-16 h-16 bg-orange-400 rounded-full flex items-center justify-center mx-auto mb-6">
-                <span className="text-2xl">💪</span>
+              <div className="w-16 h-16 bg-gradient-to-br from-orange-400 to-amber-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg shadow-orange-500/20">
+                <TrendingUpIcon className="w-7 h-7 text-white" />
               </div>
               <h3 className="text-xl font-bold text-white mb-4">Progressive Training</h3>
               <p className="text-slate-300 leading-relaxed">Smart progression tracking that automatically adjusts your workouts as you get stronger and more experienced.</p>
             </div>
-            
+
             <div className="text-center p-8 bg-slate-800 rounded-2xl hover:bg-slate-700 transition-all duration-300">
-              <div className="w-16 h-16 bg-orange-400 rounded-full flex items-center justify-center mx-auto mb-6">
-                <span className="text-2xl">🍎</span>
+              <div className="w-16 h-16 bg-gradient-to-br from-orange-400 to-amber-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg shadow-orange-500/20">
+                <AppleIcon className="w-7 h-7 text-white" />
               </div>
               <h3 className="text-xl font-bold text-white mb-4">Nutrition Guidance</h3>
               <p className="text-slate-300 leading-relaxed">Comprehensive nutrition plans that complement your training and help you achieve your fitness goals faster.</p>
@@ -234,7 +235,7 @@ export default function Home() {
           <button 
             onClick={handleGetStarted}
             disabled={isLoading}
-            className="bg-orange-400 text-white px-12 py-4 rounded-lg font-semibold text-xl hover:bg-orange-500 transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-gradient-to-r from-orange-400 to-amber-500 text-white px-12 py-4 rounded-lg font-semibold text-xl hover:from-orange-500 hover:to-amber-600 transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoading ? (
               <>
@@ -258,7 +259,7 @@ export default function Home() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div>
               <div className="flex items-center mb-6">
-                <img src="/logo.png" alt="Root Fitness Logo" className="w-8 h-8 mr-3" />
+                <img src="/logo.png" alt="Root Fitness Logo" className="w-10 h-10 mr-3 object-contain" />
                 <span className="text-xl font-bold text-white">ROOT FITNESS</span>
               </div>
               <p className="text-slate-400 leading-relaxed">

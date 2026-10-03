@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import AppHeader from "../../components/AppHeader";
+import { AppleIcon, BulbIcon, ChatBubbleIcon, CheckCircleIcon, SparkleBotIcon, WarningIcon } from "../../components/icons";
 
 interface Exercise {
   name: string;
@@ -39,6 +41,22 @@ interface WorkoutPlan {
   safetyNotes: string[];
 }
 
+// Friendly labels for the tools Root can call, shown under each answer
+const TOOL_LABELS: Record<string, string> = {
+  search_exercises: "Exercise database",
+  get_muscle_groups: "Muscle groups",
+  get_equipment: "Equipment list",
+  find_meals_by_ingredient: "Meal search",
+  get_meal_details: "Recipe lookup",
+  find_healthy_meals: "Healthy meals",
+  find_high_protein_meals: "High-protein meals",
+  find_vegetarian_meals: "Vegetarian meals",
+  search_meals_by_name: "Meal search",
+  get_random_meal: "Meal ideas",
+  search_workout_demonstrations: "Form videos",
+  ask_workout_question: "Fitness knowledge base",
+};
+
 export default function WorkoutPlanPage() {
   const router = useRouter();
   const [workoutPlan, setWorkoutPlan] = useState<WorkoutPlan | null>(null);
@@ -61,6 +79,7 @@ export default function WorkoutPlanPage() {
   const [qaAnswer, setQaAnswer] = useState("");
   const [qaSources, setQaSources] = useState<any[]>([]);
   const [isLoadingQA, setIsLoadingQA] = useState(false);
+  const [qaTools, setQaTools] = useState<string[]>([]);
   const [qaHistory, setQaHistory] = useState<Array<{question: string, answer: string, sources: any[]}>>([]);
   
   // Nutrition plan state
@@ -158,14 +177,15 @@ export default function WorkoutPlanPage() {
     setIsLoadingQA(true);
     
     try {
-      const response = await fetch("/api/rag-chat", {
+      const response = await fetch("/api/ask-root", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           message: question,
-          type: "general"
+          history: qaHistory.slice(-4).map(({ question, answer }) => ({ question, answer })),
+          userContext: userData,
         }),
       });
 
@@ -173,6 +193,9 @@ export default function WorkoutPlanPage() {
         const data = await response.json();
         setQaAnswer(data.answer);
         setQaSources(data.sources || []);
+        setQaTools(
+          Array.from(new Set<string>((data.toolsUsed || []).map((t: { name: string }) => TOOL_LABELS[t.name] || t.name)))
+        );
         
         // Add to history
         setQaHistory(prev => [...prev, {
@@ -189,6 +212,7 @@ export default function WorkoutPlanPage() {
       console.error("Error getting answer:", error);
       setQaAnswer("Sorry, I couldn't process your question right now. Please try again.");
       setQaSources([]);
+      setQaTools([]);
     } finally {
       setIsLoadingQA(false);
     }
@@ -230,35 +254,14 @@ export default function WorkoutPlanPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-gray-900 border-b border-gray-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            {/* Logo */}
-            <div className="flex items-center">
-              <div className="flex-shrink-0 flex items-center">
-                <img src="/logo.png" alt="Root Fitness Logo" className="w-8 h-8 mr-3" />
-                <span className="text-white text-xl font-bold">Root Fitness</span>
-              </div>
-            </div>
-
-            {/* Navigation */}
-            <nav className="hidden md:flex space-x-8">
-              <a href="/workout-plan" className="text-white px-3 py-2 text-sm font-medium bg-teal-500 rounded-lg">Dashboard</a>
-              <a href="/workout" className="text-gray-300 hover:text-white px-3 py-2 text-sm font-medium">Workouts</a>
-              <a href="#" className="text-gray-300 hover:text-white px-3 py-2 text-sm font-medium">Nutrition</a>
-              <a href="#" className="text-gray-300 hover:text-white px-3 py-2 text-sm font-medium">Progress</a>
-            </nav>
-
-            {/* Login Button */}
-            <div className="flex items-center">
-              <button className="bg-teal-500 text-white px-6 py-2 rounded-lg hover:bg-teal-600 transition-colors">
-                Login
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
+      <AppHeader
+        active="dashboard"
+        rightSlot={
+          <button className="bg-gradient-to-r from-teal-500 to-blue-600 text-white px-6 py-2 rounded-lg hover:from-teal-600 hover:to-blue-700 transition-colors shadow-md shadow-teal-500/20">
+            Login
+          </button>
+        }
+      />
 
       {/* Hero Section */}
       <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-700">
@@ -380,9 +383,7 @@ export default function WorkoutPlanPage() {
             {/* AI Message */}
             <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-6 border border-blue-200">
               <div className="flex items-start space-x-4">
-                <div className="w-12 h-12 bg-gradient-to-r from-teal-500 to-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
-                  <img src="/logo.png" alt="Root AI" className="w-6 h-6" />
-                </div>
+                <img src="/logo.png" alt="Root AI" className="w-12 h-12 object-contain flex-shrink-0" />
                 <div>
                   <h4 className="text-lg font-semibold text-gray-900 mb-2">Root AI Says:</h4>
                   <p className="text-gray-700">"Consistent effort leads to lasting results. Keep up the great work this week!"</p>
@@ -472,7 +473,7 @@ export default function WorkoutPlanPage() {
             <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-6 border border-green-200">
               <div className="flex items-center mb-4">
                 <div className="w-12 h-12 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full flex items-center justify-center mr-4">
-                  <span className="text-white text-xl">🍎</span>
+                  <AppleIcon className="w-6 h-6 text-white" />
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">Nutrition Plan Active</h3>
@@ -498,7 +499,7 @@ export default function WorkoutPlanPage() {
             <div className="bg-gradient-to-r from-gray-50 to-blue-50 rounded-xl p-6 border border-gray-200">
               <div className="flex items-center mb-4">
                 <div className="w-12 h-12 bg-gradient-to-r from-gray-400 to-gray-500 rounded-full flex items-center justify-center mr-4">
-                  <span className="text-white text-xl">🍎</span>
+                  <AppleIcon className="w-6 h-6 text-white" />
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">No Nutrition Plan Yet</h3>
@@ -519,7 +520,7 @@ export default function WorkoutPlanPage() {
         <div className="bg-gradient-to-r from-yellow-50 to-amber-50 border border-yellow-200 rounded-2xl p-8 mb-12 shadow-lg">
           <div className="flex items-center mb-6">
             <div className="bg-gradient-to-r from-yellow-500 to-amber-600 p-4 rounded-full mr-4">
-              <span className="text-3xl">⚠️</span>
+              <WarningIcon className="w-7 h-7 text-white" />
             </div>
             <h3 className="text-2xl font-bold text-yellow-800">Safety Notes</h3>
           </div>
@@ -536,7 +537,10 @@ export default function WorkoutPlanPage() {
         {/* Q&A Section */}
         <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8 mb-12">
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-2xl font-bold text-gray-900">🤖 Ask Root About Your Workout</h3>
+            <h3 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              <SparkleBotIcon className="w-6 h-6 text-teal-600" />
+              Ask Root About Your Workout
+            </h3>
             <button
               onClick={() => setShowQASection(!showQASection)}
               className="bg-gradient-to-r from-teal-500 to-blue-600 text-white px-6 py-3 rounded-xl hover:from-teal-600 hover:to-blue-700 transition-all duration-200 transform hover:scale-105 shadow-lg"
@@ -577,10 +581,21 @@ export default function WorkoutPlanPage() {
               {qaAnswer && (
                 <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-xl p-6">
                   <div className="flex items-start">
-                    <span className="text-blue-500 mr-3 text-2xl">🤖</span>
+                    <SparkleBotIcon className="w-6 h-6 text-blue-500 mr-3 flex-shrink-0 mt-0.5" />
                     <div className="flex-1">
                       <h4 className="text-lg font-semibold text-gray-900 mb-2">Root's Answer:</h4>
                       <p className="text-gray-700 text-lg leading-relaxed whitespace-pre-wrap">{qaAnswer}</p>
+
+                      {qaTools.length > 0 && (
+                        <div className="mt-4 flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-semibold text-gray-500">Root checked:</span>
+                          {qaTools.map((tool) => (
+                            <span key={tool} className="bg-white text-teal-700 border border-teal-200 text-xs font-medium px-2.5 py-1 rounded-full">
+                              {tool}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       
                       {/* Sources */}
                       {qaSources.length > 0 && (
@@ -635,7 +650,10 @@ export default function WorkoutPlanPage() {
 
               {/* Example Questions */}
               <div className="bg-gray-50 rounded-xl p-6">
-                <h4 className="text-lg font-semibold text-gray-900 mb-3">💡 Try asking:</h4>
+                <h4 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  <BulbIcon className="w-5 h-5 text-amber-500" />
+                  Try asking:
+                </h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <button
                     onClick={() => setQuestion("How do I do a proper push-up?")}
@@ -667,48 +685,13 @@ export default function WorkoutPlanPage() {
           )}
         </div>
 
-        {/* Ask Root About Your Workout */}
-        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6 mb-8">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="flex-shrink-0">
-                <div className="w-12 h-12 bg-gradient-to-br from-purple-400 to-blue-500 rounded-full flex items-center justify-center relative">
-                  {/* Robot head */}
-                  <div className="w-8 h-8 bg-purple-300 rounded-full flex items-center justify-center">
-                    {/* Eyes */}
-                    <div className="flex space-x-1">
-                      <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                      <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                    </div>
-                  </div>
-                  {/* Antennae */}
-                  <div className="absolute -top-1 left-1/2 transform -translate-x-1/2 flex space-x-1">
-                    <div className="w-1 h-2 bg-yellow-400 rounded-full"></div>
-                    <div className="w-1 h-2 bg-yellow-400 rounded-full"></div>
-                  </div>
-                </div>
-              </div>
-              <div>
-                <h3 className="text-xl font-bold text-gray-900">Ask Root About Your Workout</h3>
-                <p className="text-gray-600 text-sm">Get personalized advice and tips</p>
-              </div>
-            </div>
-            <button
-              onClick={() => {
-                // TODO: Implement chat functionality
-                alert("Chat functionality coming soon!");
-              }}
-              className="bg-gradient-to-r from-teal-500 to-blue-600 text-white px-6 py-3 rounded-xl font-semibold hover:from-teal-600 hover:to-blue-700 transition-all duration-200 transform hover:scale-105 shadow-lg"
-            >
-              Ask a Question
-            </button>
-          </div>
-        </div>
-
         {/* Feedback Section */}
         <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8">
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-2xl font-bold text-gray-900">💬 Share Your Feedback</h3>
+            <h3 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              <ChatBubbleIcon className="w-6 h-6 text-teal-600" />
+              Share Your Feedback
+            </h3>
             {!showFeedbackForm && !feedbackSubmitted && (
               <button
                 onClick={() => setShowFeedbackForm(true)}
@@ -722,7 +705,7 @@ export default function WorkoutPlanPage() {
           {feedbackSubmitted && (
             <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-6 mb-6">
               <div className="flex items-center">
-                <span className="text-green-500 mr-3 text-2xl">✅</span>
+                <CheckCircleIcon className="w-6 h-6 text-green-500 mr-3 flex-shrink-0" />
                 <p className="text-green-800 text-lg">Thank you for your feedback! It helps us improve our workout plans.</p>
               </div>
             </div>

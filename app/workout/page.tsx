@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import AppHeader from "../../components/AppHeader";
+import { BulbIcon, FireIcon, ZenIcon, WarningIcon } from "../../components/icons";
 
 interface Exercise {
   name: string;
@@ -117,38 +119,17 @@ export default function WorkoutPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-gray-900 border-b border-gray-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            {/* Logo */}
-            <div className="flex items-center">
-              <div className="flex-shrink-0 flex items-center">
-                <img src="/logo.png" alt="Root Fitness Logo" className="w-8 h-8 mr-3" />
-                <span className="text-white text-xl font-bold">Root Fitness</span>
-              </div>
-            </div>
-
-            {/* Navigation */}
-            <nav className="hidden md:flex space-x-8">
-              <a href="/workout-plan" className="text-gray-300 hover:text-white px-3 py-2 text-sm font-medium">Dashboard</a>
-              <a href="/workout" className="text-white px-3 py-2 text-sm font-medium bg-teal-500 rounded-lg">Workouts</a>
-              <a href="/nutrition" className="text-gray-300 hover:text-white px-3 py-2 text-sm font-medium">Nutrition</a>
-              <a href="#" className="text-gray-300 hover:text-white px-3 py-2 text-sm font-medium">Progress</a>
-            </nav>
-
-            {/* Back Button */}
-            <div className="flex items-center">
-              <button
-                onClick={() => router.push("/workout-plan")}
-                className="bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors"
-              >
-                ← Back to Dashboard
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
+      <AppHeader
+        active="workouts"
+        rightSlot={
+          <button
+            onClick={() => router.push("/workout-plan")}
+            className="bg-white/10 text-white px-4 py-2 rounded-lg hover:bg-white/20 transition-colors border border-white/10"
+          >
+            ← Back to Dashboard
+          </button>
+        }
+      />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         {/* Weekly Schedule */}
@@ -161,7 +142,7 @@ export default function WorkoutPage() {
                 onClick={() => setSelectedDay(day)}
                 className={`px-6 py-3 rounded-xl font-semibold text-lg transition-all duration-200 ${
                   selectedDay === day
-                    ? "bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-lg"
+                    ? "bg-gradient-to-r from-teal-500 to-blue-600 text-white shadow-lg shadow-teal-500/20"
                     : "bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-200"
                 }`}
               >
@@ -237,7 +218,7 @@ export default function WorkoutPage() {
                         {exercise.notes && (
                           <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 rounded-lg p-4">
                             <p className="text-yellow-800 flex items-start">
-                              <span className="text-yellow-500 mr-2 mt-0.5 text-lg">💡</span>
+                              <BulbIcon className="w-5 h-5 text-yellow-500 mr-2 mt-0.5 flex-shrink-0" />
                               <span className="leading-relaxed">{exercise.notes}</span>
                             </p>
                           </div>
@@ -276,7 +257,7 @@ export default function WorkoutPage() {
               <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 rounded-2xl p-6">
                 <div className="flex items-center mb-4">
                   <div className="w-10 h-10 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-full flex items-center justify-center mr-3">
-                    <span className="text-white text-lg">💡</span>
+                    <BulbIcon className="w-5 h-5 text-white" />
                   </div>
                   <h3 className="text-lg font-bold text-gray-900">AI Coach Tip</h3>
                 </div>
@@ -289,7 +270,7 @@ export default function WorkoutPage() {
                 <div className="space-y-4">
                   <div>
                     <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center">
-                      <span className="text-orange-500 mr-2">🔥</span>
+                      <FireIcon className="w-4 h-4 text-orange-500 mr-2" />
                       Warmup
                     </h4>
                     <ul className="space-y-1">
@@ -303,7 +284,7 @@ export default function WorkoutPage() {
                   </div>
                   <div>
                     <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center">
-                      <span className="text-blue-500 mr-2">🧘</span>
+                      <ZenIcon className="w-4 h-4 text-blue-500 mr-2" />
                       Cooldown
                     </h4>
                     <ul className="space-y-1">
@@ -325,7 +306,7 @@ export default function WorkoutPage() {
         <div className="bg-gradient-to-r from-yellow-50 to-amber-50 border border-yellow-200 rounded-2xl p-8 mt-12 shadow-lg">
           <div className="flex items-center mb-6">
             <div className="bg-gradient-to-r from-yellow-500 to-amber-600 p-4 rounded-full mr-4">
-              <span className="text-3xl">⚠️</span>
+              <WarningIcon className="w-7 h-7 text-white" />
             </div>
             <h3 className="text-2xl font-bold text-yellow-800">Safety Notes</h3>
           </div>

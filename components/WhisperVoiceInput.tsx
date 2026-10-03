@@ -7,13 +7,17 @@ interface WhisperVoiceInputProps {
   onError?: (error: string) => void;
   disabled?: boolean;
   className?: string;
+  /** 'default' is the original compact pill button. 'orb' renders a large
+   * glowing circular mic button with status text, for a voice-first screen. */
+  variant?: 'default' | 'orb';
 }
 
-export default function WhisperVoiceInput({ 
-  onTranscript, 
-  onError, 
+export default function WhisperVoiceInput({
+  onTranscript,
+  onError,
   disabled = false,
-  className = ""
+  className = "",
+  variant = 'default'
 }: WhisperVoiceInputProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -22,8 +26,20 @@ export default function WhisperVoiceInput({
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      // Mono speech with noise suppression gives the transcriber a much cleaner signal
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+
+      const preferredType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(
+        (type) => MediaRecorder.isTypeSupported(type)
+      );
+      const mediaRecorder = new MediaRecorder(stream, preferredType ? { mimeType: preferredType } : undefined);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -34,11 +50,15 @@ export default function WhisperVoiceInput({
       };
 
       mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        await transcribeAudio(audioBlob);
-        
         // Stop all tracks to release microphone
         stream.getTracks().forEach(track => track.stop());
+
+        const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType || 'audio/webm' });
+        if (audioBlob.size < 1000) {
+          onError?.("I didn't catch that - please try speaking again.");
+          return;
+        }
+        await transcribeAudio(audioBlob);
       };
 
       mediaRecorder.start();
@@ -84,6 +104,61 @@ export default function WhisperVoiceInput({
       setIsProcessing(false);
     }
   };
+
+  if (variant === 'orb') {
+    const statusText = isProcessing ? 'Transcribing...' : isRecording ? 'Listening...' : 'Tap to speak';
+
+    return (
+      <div className={`flex flex-col items-center space-y-4 ${className}`}>
+        <div className="relative w-32 h-32 flex items-center justify-center">
+          {/* Expanding rings while recording */}
+          {isRecording && (
+            <>
+              <span className="absolute inset-0 rounded-full bg-red-500/30 animate-ping" />
+              <span className="absolute inset-2 rounded-full bg-red-500/20 animate-ping" style={{ animationDelay: '0.3s' }} />
+            </>
+          )}
+
+          {/* Idle glow */}
+          {!isRecording && !isProcessing && (
+            <span className="absolute inset-0 rounded-full bg-gradient-to-br from-teal-400 via-blue-500 to-purple-500 blur-xl opacity-40 animate-pulse-glow" />
+          )}
+
+          <button
+            type="button"
+            onClick={isRecording ? stopRecording : startRecording}
+            disabled={disabled || isProcessing}
+            className={`
+              relative w-28 h-28 rounded-full flex items-center justify-center
+              transition-all duration-200 shadow-xl
+              ${isRecording
+                ? 'bg-gradient-to-br from-red-500 to-orange-500'
+                : 'bg-gradient-to-br from-teal-400 via-blue-500 to-purple-600'
+              }
+              ${disabled || isProcessing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:scale-105'}
+              focus:outline-none focus:ring-4 focus:ring-teal-500/40
+            `}
+            title={isRecording ? 'Stop recording' : isProcessing ? 'Processing...' : 'Start voice input'}
+          >
+            {isProcessing ? (
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white" />
+            ) : isRecording ? (
+              <svg className="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 20 20">
+                <rect x="6" y="6" width="8" height="8" rx="1.5" />
+              </svg>
+            ) : (
+              <svg className="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+              </svg>
+            )}
+          </button>
+        </div>
+        <span className={`text-sm font-medium ${isRecording ? 'text-red-400' : isProcessing ? 'text-teal-400' : 'text-gray-400'}`}>
+          {statusText}
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div className={`relative ${className}`}>

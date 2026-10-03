@@ -25,6 +25,16 @@ interface UserData {
   gender?: string;
 }
 
+const LOADING_MESSAGES = [
+  "Analyzing your goals...",
+  "Reviewing your experience level...",
+  "Selecting the best exercises for you...",
+  "Building your weekly schedule...",
+  "Optimizing for your equipment...",
+  "Adding finishing touches...",
+  "All done! Redirecting you now..."
+];
+
 export default function OnboardingPage() {
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([
@@ -42,15 +52,20 @@ export default function OnboardingPage() {
   const [useVoiceInput, setUseVoiceInput] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const [planProgress, setPlanProgress] = useState(0);
+  const [hasStartedChat, setHasStartedChat] = useState(false);
+  const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
 
   // Function to parse user data from conversation
   const parseUserData = (messages: Message[]): UserData | null => {
     const userMessages = messages.filter(msg => msg.sender === "user");
     const botMessages = messages.filter(msg => msg.sender === "bot");
     
-    // Check if we have the end message indicating onboarding is complete
+    // Check if we have the end message indicating onboarding is complete.
+    // The AI is instructed to append this exact control token to its final
+    // message - matching it directly is far more reliable than matching its
+    // (creative, temperature>0) celebratory wording, which varies per request.
     const lastBotMessage = botMessages[botMessages.length - 1];
-    if (!lastBotMessage?.text.includes("BOOM! We're all set up")) {
+    if (!lastBotMessage?.text.includes("[ONBOARDING_COMPLETE]")) {
       return null;
     }
 
@@ -78,14 +93,22 @@ export default function OnboardingPage() {
 
     // Helper: extract name robustly
     const extractName = (): string => {
-      // Search newest-to-oldest user messages using common patterns
+      // The name is always the user's first reply, since onboarding opens by asking for it.
+      // Patterns are matched only within that reply - matching across the whole conversation
+      // let later answers like "No injuries, I'm healthy" get mistaken for the name.
       const patterns = [
         /my name is\s+([^.,!\n\r]+)/i,
         /i am\s+([^.,!\n\r]+)/i,
         /i'm\s+([^.,!\n\r]+)/i
       ];
-      for (let i = userMessages.length - 1; i >= 0; i--) {
-        const text = userMessages[i].text.trim();
+
+      const namePromptIdx = messages.findIndex(m => m.sender === 'bot' && /name/i.test(m.text));
+      const userAfterPrompt = namePromptIdx >= 0
+        ? messages.slice(namePromptIdx + 1).find(m => m.sender === 'user')
+        : userMessages[0];
+
+      if (userAfterPrompt && userAfterPrompt.text && userAfterPrompt.text.trim().length > 0) {
+        const text = userAfterPrompt.text.trim();
         for (const p of patterns) {
           const m = text.match(p);
           if (m && m[1]) {
@@ -93,15 +116,7 @@ export default function OnboardingPage() {
             if (candidate.length > 0) return candidate; // preserve as-is
           }
         }
-      }
-
-      // Fallback: use the first user reply after the name prompt, as-is
-      const namePromptIdx = messages.findIndex(m => m.sender === 'bot' && /name/i.test(m.text));
-      const userAfterPrompt = namePromptIdx >= 0
-        ? messages.slice(namePromptIdx + 1).find(m => m.sender === 'user')
-        : userMessages[0];
-      if (userAfterPrompt && userAfterPrompt.text && userAfterPrompt.text.trim().length > 0) {
-        return userAfterPrompt.text.trim();
+        return text;
       }
 
       // Final fallback: if absolutely nothing, return 'User'
@@ -384,18 +399,18 @@ export default function OnboardingPage() {
   const generateWorkoutPlan = async (userData: UserData) => {
     setIsGeneratingPlan(true);
     setCurrentStep(5);
-    
-    // Simulate progress updates
+    setPlanProgress(0);
+    setLoadingMessageIndex(0);
+
+    // Simulate progress updates, holding just under 100% until the real response lands
     const progressInterval = setInterval(() => {
-      setPlanProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(progressInterval);
-          return 100;
-        }
-        return prev + Math.random() * 15;
-      });
-    }, 200);
-    
+      setPlanProgress(prev => (prev >= 92 ? prev : prev + Math.random() * 10));
+    }, 400);
+
+    const messageInterval = setInterval(() => {
+      setLoadingMessageIndex(prev => (prev + 1) % (LOADING_MESSAGES.length - 1));
+    }, 1800);
+
     try {
       const response = await fetch("/api/generate-plan", {
         method: "POST",
@@ -433,7 +448,7 @@ export default function OnboardingPage() {
         console.log("Plan saved with ID:", planId);
       }
       
-      // Add success message to chat
+      // Add success message to chat (visible once the user is back on this page/history)
       const successMessage: Message = {
         id: Date.now().toString(),
         text: "🎉 Your workout plan has been generated and saved! Redirecting you to view it...",
@@ -441,14 +456,22 @@ export default function OnboardingPage() {
         timestamp: new Date()
       };
       setMessages(prev => [...prev, successMessage]);
-      
-      // Navigate to workout plan page after a short delay
+
+      // Finish the progress bar and show the "done" message before redirecting,
+      // instead of yanking the user away mid-animation.
+      clearInterval(progressInterval);
+      clearInterval(messageInterval);
+      setPlanProgress(100);
+      setLoadingMessageIndex(LOADING_MESSAGES.length - 1);
+
       setTimeout(() => {
         router.push("/workout-plan");
-      }, 2000);
-      
+      }, 1200);
+
     } catch (error) {
       console.error("Error generating workout plan:", error);
+      clearInterval(progressInterval);
+      clearInterval(messageInterval);
       // Add error message to chat
       const errorMessage: Message = {
         id: Date.now().toString(),
@@ -457,9 +480,7 @@ export default function OnboardingPage() {
         timestamp: new Date()
       };
       setMessages(prev => [...prev, errorMessage]);
-    } finally {
       setIsGeneratingPlan(false);
-      clearInterval(progressInterval);
     }
   };
 
@@ -474,22 +495,24 @@ export default function OnboardingPage() {
     }
   }, [messages, isGeneratingPlan, userData]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (inputValue.trim() && !isLoading && !isGeneratingPlan) {
+  // overrideText lets voice input send its transcript directly, since state set via
+  // setInputValue isn't visible to this closure until the next render.
+  const handleSubmit = async (e?: React.FormEvent, overrideText?: string) => {
+    e?.preventDefault();
+    const messageText = (overrideText ?? inputValue).trim();
+
+    if (messageText && !isLoading && !isGeneratingPlan) {
       setIsLoading(true);
-      
+
       // Add user message
       const userMessage: Message = {
         id: Date.now().toString(),
-        text: inputValue.trim(),
+        text: messageText,
         sender: "user",
         timestamp: new Date()
       };
-      
+
       setMessages(prev => [...prev, userMessage]);
-      const currentInput = inputValue.trim();
       setInputValue("");
       
       try {
@@ -565,26 +588,32 @@ export default function OnboardingPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900">
+    <div className="min-h-screen bg-gray-900 relative overflow-hidden">
+      {/* Ambient background glow */}
+      <div className="pointer-events-none absolute -top-40 -left-40 w-96 h-96 bg-teal-500/10 rounded-full blur-3xl" />
+      <div className="pointer-events-none absolute top-1/3 -right-40 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl" />
+
       {/* Header */}
-      <header className="bg-gray-900 border-b border-gray-800">
+      <header className="relative bg-gray-900/80 backdrop-blur border-b border-gray-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
             <div className="flex items-center">
               <div className="flex-shrink-0 flex items-center">
-                <img src="/logo.png" alt="Root AI Logo" className="w-8 h-8 mr-3" />
+                <img src="/logo.png" alt="Root AI Logo" className="w-10 h-10 mr-3 object-contain" />
                 <span className="text-white text-xl font-bold">Root AI</span>
               </div>
             </div>
 
             {/* Step Indicator */}
-            <div className="flex items-center">
-              <span className="text-white text-lg font-medium">
-                {currentStep === 1 ? "Onboarding" : currentStep === 2 ? "Your Goals" : currentStep === 3 ? "Your Experience" : currentStep === 4 ? "Your Setup" : "Your Plan"}
-              </span>
-              <div className="ml-4 w-2 h-2 bg-teal-500 rounded-full"></div>
-            </div>
+            {hasStartedChat && (
+              <div className="hidden sm:flex items-center gap-2 bg-gray-800/80 border border-gray-700 rounded-full px-4 py-1.5">
+                <span className="w-2 h-2 bg-green-400 rounded-full" />
+                <span className="text-sm text-gray-200 font-medium">
+                  {currentStep === 1 ? "Onboarding" : currentStep === 2 ? "Your Goals" : currentStep === 3 ? "Your Experience" : currentStep === 4 ? "Your Setup" : "Your Plan"}
+                </span>
+              </div>
+            )}
 
             {/* Hamburger Menu */}
             <div className="flex items-center">
@@ -598,208 +627,202 @@ export default function OnboardingPage() {
         </div>
       </header>
 
-      {/* Main Chat Container */}
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        <div className="bg-gray-800 rounded-2xl shadow-2xl overflow-hidden">
-          {/* Chat Messages */}
-          <div className="h-[600px] p-6 overflow-y-auto">
-            <div className="space-y-6">
-              {messages.map((message) => (
-                <div key={message.id} className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className="flex items-start space-x-3 max-w-2xl">
-                    {message.sender === "bot" && (
-                      <div className="w-10 h-10 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0">
-                        <img src="/logo.png" alt="Root AI" className="w-6 h-6" />
-                      </div>
-                    )}
-                    
-                    <div className={`rounded-2xl p-4 ${
-                      message.sender === "user" 
-                        ? "bg-teal-500 text-white" 
-                        : "bg-gray-700 text-gray-100"
-                    }`}>
-                      <p className="text-base leading-relaxed">{message.text}</p>
-                    </div>
-
-                    {message.sender === "user" && (
-                      <div className="w-10 h-10 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0">
-                        <span className="text-white text-lg font-bold">U</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-              
-              {/* Loading indicator */}
-              {isLoading && (
-                <div className="flex justify-start">
-                  <div className="flex items-start space-x-3">
-                    <div className="w-10 h-10 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0">
-                      <img src="/logo.png" alt="Root AI" className="w-6 h-6" />
-                    </div>
-                    <div className="bg-gray-700 rounded-2xl p-4">
-                      <div className="flex items-center space-x-2">
-                        <div className="flex space-x-1">
-                          <div className="w-2 h-2 bg-teal-400 rounded-full animate-bounce"></div>
-                          <div className="w-2 h-2 bg-teal-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
-                          <div className="w-2 h-2 bg-teal-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
-                        </div>
-                        <span className="text-gray-300 text-sm">Root is thinking...</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Plan Generation Section */}
-              {isGeneratingPlan && (
-                <div className="flex justify-start">
-                  <div className="flex items-start space-x-3">
-                    <div className="w-10 h-10 bg-teal-500 rounded-full flex items-center justify-center flex-shrink-0">
-                      <img src="/logo.png" alt="Root AI" className="w-6 h-6" />
-                    </div>
-                    <div className="bg-gray-700 rounded-2xl p-6 max-w-md">
-                      <p className="text-gray-100 mb-4">Based on your goals, experience, and equipment, I'm now creating your personalized 'Full Body Revival' plan.</p>
-                      
-                      <div className="mb-4">
-                        <p className="text-white font-medium mb-2">Generating Plan...</p>
-                        <div className="w-full bg-gray-600 rounded-full h-2">
-                          <div 
-                            className="bg-green-500 h-2 rounded-full transition-all duration-300"
-                            style={{ width: `${Math.min(planProgress, 100)}%` }}
-                          ></div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <div className="flex items-center space-x-2">
-                          <div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
-                            <svg className="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 8 8">
-                              <path d="M6.564.75a.75.75 0 0 1 1.06 1.06L3.06 6.314a.75.75 0 0 1-1.06 0L.44 4.694a.75.75 0 1 1 1.06-1.06l1.06 1.06L6.564.75Z"/>
-                            </svg>
-                          </div>
-                          <span className="text-green-400 text-sm">Optimize Workouts...</span>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <div className="w-4 h-4 bg-gray-500 rounded-full flex items-center justify-center">
-                            <span className="text-white text-xs font-bold">N</span>
-                          </div>
-                          <span className="text-gray-400 text-sm">Finalizing Nutrition...</span>
-                        </div>
-                      </div>
-
-                      {/* Decorative icons */}
-                      <div className="flex justify-end mt-4">
-                        <div className="flex space-x-1">
-                          <div className="w-6 h-6 bg-orange-500 rounded-full flex items-center justify-center">
-                            <span className="text-white text-xs font-bold">H</span>
-                          </div>
-                          <div className="w-6 h-6 bg-teal-500 rounded-full flex items-center justify-center">
-                            <span className="text-white text-xs font-bold">W</span>
-                          </div>
-                          <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
-                            <span className="text-white text-xs font-bold">N</span>
-                          </div>
-                          <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
-                            <span className="text-white text-xs font-bold">P</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+      {!hasStartedChat ? (
+        /* Welcome Hero */
+        <div
+          className="relative flex flex-col items-center justify-center text-center px-6"
+          style={{ minHeight: "calc(100vh - 4rem)" }}
+        >
+          <div className="relative w-36 h-36 sm:w-44 sm:h-44 mb-8 flex items-center justify-center">
+            <div className="absolute inset-0 rounded-full bg-gradient-to-br from-teal-400 via-blue-500 to-purple-500 blur-2xl opacity-40 animate-pulse-glow" />
+            <img src="/logo.png" alt="Root AI" className="relative w-full h-full object-contain" />
           </div>
 
-          {/* Input Area */}
-          <div className="bg-gray-750 border-t border-gray-700 p-6">
-            {useVoiceInput ? (
-              /* Voice Input Mode */
-              <div className="flex flex-col items-center space-y-4">
-                <WhisperVoiceInput
-                  onTranscript={(text) => {
-                    setInputValue(text);
-                    // Auto-send after transcription
-                    setTimeout(() => {
-                      if (text.trim()) {
-                        handleSubmit(new Event('submit') as any);
-                      }
-                    }, 500);
-                  }}
-                  onError={(error) => {
-                    console.error('Voice input error:', error);
-                    alert(`Voice input error: ${error}`);
-                  }}
-                  disabled={isLoading || isGeneratingPlan}
-                  className="flex-shrink-0"
-                />
-                <p className="text-gray-400 text-sm text-center">
-                  Click the microphone to start recording your message
-                </p>
+          <div className="inline-flex items-center gap-2 bg-gray-800/80 border border-gray-700 rounded-full px-4 py-1.5 mb-6">
+            <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+            <span className="text-sm text-gray-300 font-medium">Online</span>
+          </div>
+
+          <h1 className="text-3xl sm:text-4xl font-bold text-white mb-4 max-w-xl">
+            Your Personal AI Fitness Coach
+          </h1>
+          <p className="text-gray-400 max-w-md mb-10 leading-relaxed">
+            {messages[0].text}
+          </p>
+
+          <button
+            onClick={() => setHasStartedChat(true)}
+            className="px-8 py-4 bg-gradient-to-r from-orange-500 to-orange-600 text-white font-semibold rounded-full shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 hover:scale-105 transition-all duration-200"
+          >
+            Let's Start Chatting
+          </button>
+        </div>
+      ) : (
+        /* Main Chat Container */
+        <div className="relative max-w-4xl mx-auto px-4 py-8">
+          <div className="bg-gray-800/60 backdrop-blur border border-gray-700/50 rounded-3xl shadow-2xl overflow-hidden">
+            {/* Chat header pill */}
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-700/50">
+              <img src="/logo.png" alt="Root AI" className="w-10 h-10 object-contain flex-shrink-0" />
+              <div>
+                <p className="text-white font-semibold text-sm">Root AI Coach</p>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 bg-green-400 rounded-full" />
+                  <span className="text-xs text-gray-400">Online</span>
+                </div>
               </div>
-            ) : (
-              /* Text Input Mode */
-              <form onSubmit={handleSubmit} className="flex space-x-4">
-                <div className="flex-1 relative">
+            </div>
+
+            {/* Chat Messages */}
+            <div className="h-[560px] p-6 overflow-y-auto">
+              <div className="space-y-6">
+                {messages.map((message) => (
+                  <div key={message.id} className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}>
+                    <div className="flex items-start space-x-3 max-w-2xl">
+                      {message.sender === "bot" && (
+                        <img src="/logo.png" alt="Root AI" className="w-9 h-9 object-contain flex-shrink-0" />
+                      )}
+
+                      <div className={`rounded-2xl px-4 py-3 ${
+                        message.sender === "user"
+                          ? "bg-gradient-to-br from-teal-500 to-teal-600 text-white"
+                          : "bg-gray-800/80 border border-gray-700/60 text-gray-100"
+                      }`}>
+                        <p className="text-base leading-relaxed">
+                          {/* Strips the control token even mid-stream, where only a partial prefix like "[ONBOARD" has arrived so far */}
+                          {message.text.replace(/\[O?N?B?O?A?R?D?I?N?G?_?C?O?M?P?L?E?T?E?\]?$/, "").trim()}
+                        </p>
+                      </div>
+
+                      {message.sender === "user" && (
+                        <div className="w-9 h-9 bg-gray-700 border border-gray-600 rounded-full flex items-center justify-center flex-shrink-0">
+                          <span className="text-white text-sm font-bold">U</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {/* Loading indicator */}
+                {isLoading && (
+                  <div className="flex justify-start">
+                    <div className="flex items-start space-x-3">
+                      <img src="/logo.png" alt="Root AI" className="w-9 h-9 object-contain flex-shrink-0" />
+                      <div className="bg-gray-800/80 border border-gray-700/60 rounded-2xl p-4">
+                        <div className="flex items-center space-x-2">
+                          <div className="flex space-x-1">
+                            <div className="w-2 h-2 bg-teal-400 rounded-full animate-bounce"></div>
+                            <div className="w-2 h-2 bg-teal-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+                            <div className="w-2 h-2 bg-teal-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                          </div>
+                          <span className="text-gray-300 text-sm">Root is thinking...</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+              </div>
+            </div>
+
+            {/* Input Area */}
+            <div className="border-t border-gray-700/50 p-4 sm:p-6">
+              {useVoiceInput ? (
+                /* Voice Input Mode */
+                <div className="flex flex-col items-center py-2">
+                  <WhisperVoiceInput
+                    variant="orb"
+                    onTranscript={(text) => {
+                      if (text.trim()) {
+                        handleSubmit(undefined, text);
+                      }
+                    }}
+                    onError={(error) => {
+                      console.error('Voice input error:', error);
+                      alert(`Voice input error: ${error}`);
+                    }}
+                    disabled={isLoading || isGeneratingPlan}
+                  />
+                  <button
+                    onClick={() => setUseVoiceInput(false)}
+                    className="mt-5 flex items-center gap-2 text-gray-400 hover:text-white text-sm font-medium transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Switch to text
+                  </button>
+                </div>
+              ) : (
+                /* Text Input Mode */
+                <form onSubmit={handleSubmit} className="flex items-center gap-2 bg-gray-900/70 border border-gray-700 rounded-full pl-2 pr-2 py-2">
+                  <button
+                    type="button"
+                    onClick={() => setUseVoiceInput(true)}
+                    disabled={isLoading || isGeneratingPlan}
+                    className="p-2.5 rounded-full text-gray-400 hover:text-teal-400 hover:bg-gray-800 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Switch to voice"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                    </svg>
+                  </button>
+
                   <input
                     type="text"
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
                     placeholder="Tell me about yourself..."
-                    className="w-full p-4 pr-12 text-gray-100 bg-gray-700 border border-gray-600 rounded-2xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 placeholder-gray-400"
+                    className="flex-1 bg-transparent text-gray-100 placeholder-gray-500 focus:outline-none py-2 text-base min-w-0"
                     disabled={isLoading || isGeneratingPlan}
                   />
-                  <div className="absolute right-4 top-1/2 transform -translate-y-1/2">
-                    <span className="text-gray-400 text-xl">💬</span>
-                  </div>
-                </div>
-                <button 
-                  type="submit" 
-                  className={`px-8 py-4 rounded-2xl font-semibold text-lg transition-all duration-200 transform hover:scale-105 ${
-                    isLoading || isGeneratingPlan || !inputValue.trim()
-                      ? "bg-gray-600 text-gray-400 cursor-not-allowed"
-                      : "bg-orange-500 text-white hover:bg-orange-600 shadow-lg hover:shadow-xl"
-                  }`}
-                  disabled={isLoading || isGeneratingPlan || !inputValue.trim()}
-                >
-                  {isGeneratingPlan ? "Generating..." : isLoading ? "Sending..." : "Send"}
-                </button>
-              </form>
-            )}
 
-            {/* Voice Input Toggle */}
-            <div className="flex items-center justify-center space-x-4 mt-4">
-              <button
-                onClick={() => setUseVoiceInput(false)}
-                className={`px-4 py-2 rounded-xl font-medium transition-all duration-200 flex items-center space-x-2 ${
-                  !useVoiceInput 
-                    ? 'bg-teal-500 text-white' 
-                    : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
-                }`}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <span>Text</span>
-              </button>
-              <button
-                onClick={() => setUseVoiceInput(true)}
-                className={`px-4 py-2 rounded-xl font-medium transition-all duration-200 flex items-center space-x-2 ${
-                  useVoiceInput 
-                    ? 'bg-teal-500 text-white' 
-                    : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
-                }`}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                </svg>
-                <span>Voice</span>
-              </button>
+                  <button
+                    type="submit"
+                    className={`p-3 rounded-full transition-all duration-200 flex-shrink-0 flex items-center justify-center ${
+                      isLoading || isGeneratingPlan || !inputValue.trim()
+                        ? "bg-gray-700 text-gray-500 cursor-not-allowed"
+                        : "bg-gradient-to-br from-orange-500 to-orange-600 text-white hover:shadow-lg hover:shadow-orange-500/30 hover:scale-105"
+                    }`}
+                    disabled={isLoading || isGeneratingPlan || !inputValue.trim()}
+                  >
+                    {isLoading || isGeneratingPlan ? (
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-current" />
+                    ) : (
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19V5m0 0l-7 7m7-7l7 7" />
+                      </svg>
+                    )}
+                  </button>
+                </form>
+              )}
             </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Full-screen plan generation overlay */}
+      {isGeneratingPlan && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-gray-900/95 backdrop-blur-sm px-6 text-center">
+          <div className="relative w-32 h-32 sm:w-40 sm:h-40 mb-8 flex items-center justify-center">
+            <div className="absolute inset-0 rounded-full bg-gradient-to-br from-teal-400 via-blue-500 to-purple-500 blur-2xl opacity-50 animate-pulse-glow" />
+            <img src="/logo.png" alt="Root AI" className="relative w-full h-full object-contain animate-float" />
+          </div>
+
+          <h2 className="text-2xl sm:text-3xl font-bold text-white mb-3">Building Your Plan</h2>
+          <p className="text-gray-400 mb-8 max-w-sm min-h-[1.5rem] transition-all duration-300">
+            {LOADING_MESSAGES[loadingMessageIndex]}
+          </p>
+
+          <div className="w-full max-w-xs bg-gray-700 rounded-full h-2 mb-3 overflow-hidden">
+            <div
+              className="bg-gradient-to-r from-teal-400 to-orange-500 h-2 rounded-full transition-all duration-300 ease-out"
+              style={{ width: `${Math.min(planProgress, 100)}%` }}
+            />
+          </div>
+          <p className="text-sm text-gray-500">{Math.min(Math.round(planProgress), 100)}%</p>
+        </div>
+      )}
     </div>
   );
 }

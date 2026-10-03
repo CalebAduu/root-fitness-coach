@@ -1,5 +1,21 @@
 "use client";
 
+import {
+  AppleIcon,
+  BulbIcon,
+  ChartBarIcon,
+  CheckCircleIcon,
+  ClockIcon,
+  EggIcon,
+  MoonIcon,
+  PillIcon,
+  PlateIcon,
+  RunningIcon,
+  SunIcon,
+  SunriseIcon,
+  WarningIcon,
+} from "./icons";
+
 interface NutritionPlan {
   userInfo: {
     goal: string;
@@ -58,7 +74,7 @@ export default function NutritionPlanDisplay({ nutritionPlan }: NutritionPlanDis
     <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-2xl p-8 mb-12 shadow-lg">
       <div className="flex items-center mb-8">
         <div className="bg-gradient-to-r from-green-500 to-emerald-600 p-4 rounded-full mr-6">
-          <span className="text-3xl">🍎</span>
+          <AppleIcon className="w-8 h-8 text-white" />
         </div>
         <div>
           <h3 className="text-3xl font-bold text-green-800 mb-2">Your Personalized Nutrition Plan</h3>
@@ -69,7 +85,7 @@ export default function NutritionPlanDisplay({ nutritionPlan }: NutritionPlanDis
       {/* Daily Guidelines */}
       <div className="bg-white rounded-xl p-6 shadow-md border border-green-100 mb-8">
         <h4 className="text-2xl font-bold text-gray-900 mb-6 flex items-center">
-          <span className="text-green-600 mr-3 text-2xl">📊</span>
+          <ChartBarIcon className="w-6 h-6 text-green-600 mr-3" />
           Daily Guidelines
         </h4>
         
@@ -121,7 +137,7 @@ export default function NutritionPlanDisplay({ nutritionPlan }: NutritionPlanDis
       {/* Meal Plan */}
       <div className="bg-white rounded-xl p-6 shadow-md border border-green-100 mb-8">
         <h4 className="text-2xl font-bold text-gray-900 mb-6 flex items-center">
-          <span className="text-green-600 mr-3 text-2xl">🍽️</span>
+          <PlateIcon className="w-6 h-6 text-green-600 mr-3" />
           Daily Meal Plan
         </h4>
         
@@ -129,7 +145,7 @@ export default function NutritionPlanDisplay({ nutritionPlan }: NutritionPlanDis
           {/* Breakfast */}
           <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg p-4 border border-yellow-200">
             <h5 className="font-bold text-yellow-800 mb-2 flex items-center">
-              <span className="mr-2">🌅</span>
+              <SunriseIcon className="w-4 h-4 mr-2" />
               Breakfast
             </h5>
             <p className="text-gray-700 mb-3">{nutritionPlan.mealPlan.breakfast.description}</p>
@@ -143,13 +159,16 @@ export default function NutritionPlanDisplay({ nutritionPlan }: NutritionPlanDis
                 ))}
               </div>
             </div>
-            <p className="text-sm text-gray-600">⏱️ {nutritionPlan.mealPlan.breakfast.preparationTime}</p>
+            <p className="text-sm text-gray-600 flex items-center gap-1">
+              <ClockIcon className="w-3.5 h-3.5" />
+              {nutritionPlan.mealPlan.breakfast.preparationTime}
+            </p>
           </div>
 
           {/* Lunch */}
           <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-4 border border-green-200">
             <h5 className="font-bold text-green-800 mb-2 flex items-center">
-              <span className="mr-2">☀️</span>
+              <SunIcon className="w-4 h-4 mr-2" />
               Lunch
             </h5>
             <p className="text-gray-700 mb-3">{nutritionPlan.mealPlan.lunch.description}</p>
@@ -163,13 +182,16 @@ export default function NutritionPlanDisplay({ nutritionPlan }: NutritionPlanDis
                 ))}
               </div>
             </div>
-            <p className="text-sm text-gray-600">⏱️ {nutritionPlan.mealPlan.lunch.preparationTime}</p>
+            <p className="text-sm text-gray-600 flex items-center gap-1">
+              <ClockIcon className="w-3.5 h-3.5" />
+              {nutritionPlan.mealPlan.lunch.preparationTime}
+            </p>
           </div>
 
           {/* Dinner */}
           <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg p-4 border border-purple-200">
             <h5 className="font-bold text-purple-800 mb-2 flex items-center">
-              <span className="mr-2">🌙</span>
+              <MoonIcon className="w-4 h-4 mr-2" />
               Dinner
             </h5>
             <p className="text-gray-700 mb-3">{nutritionPlan.mealPlan.dinner.description}</p>
@@ -183,13 +205,16 @@ export default function NutritionPlanDisplay({ nutritionPlan }: NutritionPlanDis
                 ))}
               </div>
             </div>
-            <p className="text-sm text-gray-600">⏱️ {nutritionPlan.mealPlan.dinner.preparationTime}</p>
+            <p className="text-sm text-gray-600 flex items-center gap-1">
+              <ClockIcon className="w-3.5 h-3.5" />
+              {nutritionPlan.mealPlan.dinner.preparationTime}
+            </p>
           </div>
 
           {/* Snacks */}
           <div className="bg-gradient-to-r from-pink-50 to-rose-50 rounded-lg p-4 border border-pink-200">
             <h5 className="font-bold text-pink-800 mb-2 flex items-center">
-              <span className="mr-2">🍎</span>
+              <AppleIcon className="w-4 h-4 mr-2" />
               Snacks
             </h5>
             <p className="text-gray-700 mb-3">{nutritionPlan.mealPlan.snacks.description}</p>
@@ -203,7 +228,10 @@ export default function NutritionPlanDisplay({ nutritionPlan }: NutritionPlanDis
                 ))}
               </div>
             </div>
-            <p className="text-sm text-gray-600">⏱️ {nutritionPlan.mealPlan.snacks.preparationTime}</p>
+            <p className="text-sm text-gray-600 flex items-center gap-1">
+              <ClockIcon className="w-3.5 h-3.5" />
+              {nutritionPlan.mealPlan.snacks.preparationTime}
+            </p>
           </div>
         </div>
       </div>
@@ -211,14 +239,14 @@ export default function NutritionPlanDisplay({ nutritionPlan }: NutritionPlanDis
       {/* Recommendations */}
       <div className="bg-white rounded-xl p-6 shadow-md border border-green-100 mb-8">
         <h4 className="text-2xl font-bold text-gray-900 mb-6 flex items-center">
-          <span className="text-green-600 mr-3 text-2xl">💡</span>
+          <BulbIcon className="w-6 h-6 text-green-600 mr-3" />
           Recommendations
         </h4>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <div>
             <h5 className="font-semibold text-green-800 mb-3 flex items-center">
-              <span className="mr-2">✅</span>
+              <CheckCircleIcon className="w-4 h-4 mr-2" />
               Foods to Include
             </h5>
             <ul className="space-y-2">
@@ -233,7 +261,7 @@ export default function NutritionPlanDisplay({ nutritionPlan }: NutritionPlanDis
 
           <div>
             <h5 className="font-semibold text-red-800 mb-3 flex items-center">
-              <span className="mr-2">⚠️</span>
+              <WarningIcon className="w-4 h-4 mr-2" />
               Foods to Limit
             </h5>
             <ul className="space-y-2">
@@ -248,7 +276,7 @@ export default function NutritionPlanDisplay({ nutritionPlan }: NutritionPlanDis
 
           <div>
             <h5 className="font-semibold text-blue-800 mb-3 flex items-center">
-              <span className="mr-2">💊</span>
+              <PillIcon className="w-4 h-4 mr-2" />
               Supplements
             </h5>
             <ul className="space-y-2">
@@ -265,7 +293,7 @@ export default function NutritionPlanDisplay({ nutritionPlan }: NutritionPlanDis
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
           <div>
             <h5 className="font-semibold text-purple-800 mb-3 flex items-center">
-              <span className="mr-2">🍳</span>
+              <EggIcon className="w-4 h-4 mr-2" />
               Meal Prep Tips
             </h5>
             <ul className="space-y-2">
@@ -280,7 +308,7 @@ export default function NutritionPlanDisplay({ nutritionPlan }: NutritionPlanDis
 
           <div>
             <h5 className="font-semibold text-orange-800 mb-3 flex items-center">
-              <span className="mr-2">🏃‍♂️</span>
+              <RunningIcon className="w-4 h-4 mr-2" />
               Lifestyle Tips
             </h5>
             <ul className="space-y-2">
@@ -299,7 +327,7 @@ export default function NutritionPlanDisplay({ nutritionPlan }: NutritionPlanDis
       <div className="bg-gradient-to-r from-yellow-50 to-amber-50 border border-yellow-200 rounded-xl p-6">
         <div className="flex items-center mb-4">
           <div className="bg-gradient-to-r from-yellow-500 to-amber-600 p-3 rounded-full mr-4">
-            <span className="text-2xl">⚠️</span>
+            <WarningIcon className="w-6 h-6 text-white" />
           </div>
           <h4 className="text-xl font-bold text-yellow-800">Important Safety Notes</h4>
         </div>

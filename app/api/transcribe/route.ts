@@ -21,17 +21,24 @@ export async function POST(request: NextRequest) {
     const audioBuffer = await audioFile.arrayBuffer();
     const audioBlob = new Blob([audioBuffer], { type: audioFile.type });
 
-    // Create a File object for OpenAI
-    const audioFileForOpenAI = new File([audioBlob], 'audio.webm', {
+    // Create a File object for OpenAI, with an extension matching the real format
+    const extension = audioFile.type.includes('mp4') ? 'mp4'
+      : audioFile.type.includes('ogg') ? 'ogg'
+      : audioFile.type.includes('mpeg') ? 'mp3'
+      : 'webm';
+    const audioFileForOpenAI = new File([audioBlob], `audio.${extension}`, {
       type: audioFile.type,
     });
 
-    // Transcribe using Whisper
+    // gpt-4o-transcribe is noticeably more accurate than whisper-1, especially with
+    // accents and background noise. The prompt primes it with the vocabulary this app expects.
     const transcription = await openai.audio.transcriptions.create({
       file: audioFileForOpenAI,
-      model: 'whisper-1',
-      language: 'en', // Optional: specify language
+      model: 'gpt-4o-transcribe',
+      language: 'en',
       response_format: 'text',
+      prompt:
+        'A person talking to an AI fitness coach about their name, age, height (e.g. 5 feet 10 inches), weight (lbs or kg), fitness goals, gym equipment, injuries, and workouts per week. May include food, nutrition, and exercise terms like squats, deadlifts, macros, protein.',
     });
 
     return NextResponse.json({

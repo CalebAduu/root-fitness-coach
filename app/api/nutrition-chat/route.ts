@@ -75,10 +75,12 @@ export async function POST(req: Request) {
     - Motivates them for their nutrition journey
     - Mentions that you're ready to create their personalized nutrition plan
     - Keep it under 3 sentences but make it memorable and fun
-    - MUST include the exact phrase "BOOM! We're all set up" to signal completion
-    
+    - Ends with the exact literal text "[NUTRITION_COMPLETE]" as the very last characters of your message, on its own, after your celebratory message. This is a hidden control token the app uses to detect completion - it is never shown to the user, so do not explain it or mention it.
+
     Example end message style:
-    "🎉 BOOM! We're all set up with your nutrition info! You've just leveled up from 'I should probably eat better' to 'I'm about to fuel my body like a champion' status! 🍎 Ready to turn those nutrition goals into reality? I will go ahead and create your personalized nutrition plan. Let's get this healthy eating party started! 🚀"
+    "🎉 BOOM! We're all set up with your nutrition info! You've just leveled up from 'I should probably eat better' to 'I'm about to fuel my body like a champion' status! 🍎 Ready to turn those nutrition goals into reality? I will go ahead and create your personalized nutrition plan. Let's get this healthy eating party started! 🚀[NUTRITION_COMPLETE]"
+
+    Do NOT include "[NUTRITION_COMPLETE]" in any message except the final completion message.
     
     Remember to:
     - Ask about their nutrition goals and current habits

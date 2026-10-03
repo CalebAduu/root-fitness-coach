@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import WhisperVoiceInput from "../../components/WhisperVoiceInput";
+import { AppleIcon, ChatBubbleIcon, HeartIcon, MicIcon, NoteIcon, RocketIcon, RunningIcon, ScaleIcon } from "../../components/icons";
 
 interface Message {
   id: string;
@@ -119,9 +120,11 @@ export default function NutritionOnboardingPage() {
       return null;
     }
 
-    // Check if the last bot message indicates completion
+    // Check if the last bot message indicates completion. The AI is instructed to append
+    // this exact control token to its final message - matching it directly is far more
+    // reliable than matching its (creative, temperature>0) celebratory wording.
     const lastBotMessage = messages.filter(msg => msg.sender === "bot").pop();
-    if (!lastBotMessage?.text.includes("BOOM! We're all set up")) {
+    if (!lastBotMessage?.text.includes("[NUTRITION_COMPLETE]")) {
       return null;
     }
 
@@ -222,22 +225,24 @@ export default function NutritionOnboardingPage() {
     }
   }, [messages, selectedGoal, isGeneratingPlan, nutritionData]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (inputValue.trim() && !isLoading && !isGeneratingPlan) {
+  // overrideText lets voice input send its transcript directly, since state set via
+  // setInputValue isn't visible to this closure until the next render.
+  const handleSubmit = async (e?: React.FormEvent, overrideText?: string) => {
+    e?.preventDefault();
+    const messageText = (overrideText ?? inputValue).trim();
+
+    if (messageText && !isLoading && !isGeneratingPlan) {
       setIsLoading(true);
-      
+
       // Add user message
       const userMessage: Message = {
         id: Date.now().toString(),
-        text: inputValue.trim(),
+        text: messageText,
         sender: "user",
         timestamp: new Date()
       };
-      
+
       setMessages(prev => [...prev, userMessage]);
-      const currentInput = inputValue.trim();
       setInputValue("");
       
       try {
@@ -320,16 +325,16 @@ export default function NutritionOnboardingPage() {
   // Goal selection screen
   if (!selectedGoal) {
     return (
-      <div className="min-h-screen bg-white">
+      <div className="min-h-screen bg-gray-50">
         {/* Header */}
-        <header className="relative overflow-hidden bg-gradient-to-r from-gray-700 via-gray-600 to-gray-700 shadow-2xl">
+        <header className="relative overflow-hidden bg-gradient-to-r from-teal-600 via-blue-600 to-indigo-700 shadow-2xl">
           <div className="absolute inset-0 bg-black/5"></div>
           <div className="relative px-6 py-8 text-center">
             <div className="flex items-center justify-center mb-4">
-              <img src="/logo.png" alt="Root Fitness Logo" className="w-16 h-16 mr-6" />
+              <img src="/logo.png" alt="Root Fitness Logo" className="w-16 h-16 mr-6 object-contain" />
               <div>
                 <h1 className="text-4xl font-bold text-white mb-2">Nutrition Planning</h1>
-                <p className="text-gray-200 text-lg">Choose your nutrition focus area</p>
+                <p className="text-blue-100 text-lg">Choose your nutrition focus area</p>
               </div>
             </div>
           </div>
@@ -338,37 +343,39 @@ export default function NutritionOnboardingPage() {
         {/* Goal Selection */}
         <div className="max-w-6xl mx-auto px-6 py-12">
           <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-black mb-4">What's your nutrition focus?</h2>
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">What's your nutrition focus?</h2>
             <p className="text-gray-600 text-lg">Select the area that best matches your goals</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {Object.entries(NUTRITION_GOALS).map(([key, goal]) => (
-              <button
-                key={key}
-                onClick={() => setSelectedGoal(key)}
-                className="group bg-white rounded-2xl p-8 shadow-lg border border-gray-200 hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-2 hover:border-blue-300"
-              >
-                <div className="text-center">
-                  <div className="w-16 h-16 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform duration-300">
-                    <span className="text-2xl text-white">
-                      {key === "general" ? "🍎" : 
-                       key === "weight_loss" ? "⚖️" :
-                       key === "sports_performance" ? "🏃‍♂️" :
-                       key === "health_maintenance" ? "❤️" : "🚀"}
-                    </span>
+            {Object.entries(NUTRITION_GOALS).map(([key, goal]) => {
+              const GoalIcon =
+                key === "general" ? AppleIcon :
+                key === "weight_loss" ? ScaleIcon :
+                key === "sports_performance" ? RunningIcon :
+                key === "health_maintenance" ? HeartIcon : RocketIcon;
+              return (
+                <button
+                  key={key}
+                  onClick={() => setSelectedGoal(key)}
+                  className="group bg-white rounded-2xl p-8 shadow-lg border border-gray-200 hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-2 hover:border-teal-300"
+                >
+                  <div className="text-center">
+                    <div className="w-16 h-16 bg-gradient-to-r from-teal-500 to-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform duration-300">
+                      <GoalIcon className="w-7 h-7 text-white" />
+                    </div>
+                    <h3 className="text-xl font-bold text-gray-900 mb-2">{goal.name}</h3>
+                    <p className="text-gray-600 text-sm leading-relaxed">{goal.description}</p>
                   </div>
-                  <h3 className="text-xl font-bold text-black mb-2">{goal.name}</h3>
-                  <p className="text-gray-600 text-sm leading-relaxed">{goal.description}</p>
-                </div>
-              </button>
-            ))}
+                </button>
+              );
+            })}
           </div>
 
           <div className="text-center mt-12">
             <button
               onClick={() => router.push("/workout-plan")}
-              className="bg-gray-200 text-black px-6 py-3 rounded-xl hover:bg-gray-300 transition-colors border border-gray-300"
+              className="bg-gray-200 text-gray-900 px-6 py-3 rounded-xl hover:bg-gray-300 transition-colors border border-gray-300"
             >
               ← Back to Workout Plan
             </button>
@@ -380,16 +387,16 @@ export default function NutritionOnboardingPage() {
 
   // Chat interface
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="relative overflow-hidden bg-gradient-to-r from-gray-700 via-gray-600 to-gray-700 shadow-2xl">
+      <header className="relative overflow-hidden bg-gradient-to-r from-teal-600 via-blue-600 to-indigo-700 shadow-2xl">
         <div className="absolute inset-0 bg-black/5"></div>
         <div className="relative px-6 py-8 text-center">
           <div className="flex items-center justify-center mb-4">
-            <img src="/logo.png" alt="Root Fitness Logo" className="w-16 h-16 mr-6" />
+            <img src="/logo.png" alt="Root Fitness Logo" className="w-16 h-16 mr-6 object-contain" />
             <div>
               <h1 className="text-4xl font-bold text-white mb-2">Nutrition Planning</h1>
-              <p className="text-gray-200 text-lg">{NUTRITION_GOALS[selectedGoal as keyof typeof NUTRITION_GOALS].name}</p>
+              <p className="text-blue-100 text-lg">{NUTRITION_GOALS[selectedGoal as keyof typeof NUTRITION_GOALS].name}</p>
             </div>
           </div>
         </div>
@@ -405,10 +412,13 @@ export default function NutritionOnboardingPage() {
                 <div key={message.id} className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}>
                   <div className={`max-w-2xl rounded-2xl p-6 shadow-lg ${
                     message.sender === "user" 
-                      ? "bg-gradient-to-r from-blue-600 to-purple-600 text-white" 
+                      ? "bg-gradient-to-r from-teal-500 to-blue-600 text-white" 
                       : "bg-white text-gray-800 border border-gray-200"
                   }`}>
-                    <p className="text-lg leading-relaxed">{message.text}</p>
+                    <p className="text-lg leading-relaxed">
+                      {/* Strips the control token even mid-stream, where only a partial prefix like "[NUTRITION_C" has arrived so far */}
+                      {message.text.replace(/\[N?U?T?R?I?T?I?O?N?_?C?O?M?P?L?E?T?E?\]?$/, "").trim()}
+                    </p>
                     <p className={`text-sm mt-3 opacity-80 ${
                       message.sender === "user" ? "text-blue-100" : "text-gray-500"
                     }`}>
@@ -437,10 +447,13 @@ export default function NutritionOnboardingPage() {
               {/* Plan Generation indicator */}
               {isGeneratingPlan && (
                 <div className="flex justify-start">
-                  <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-2xl p-6 shadow-lg max-w-2xl">
+                  <div className="bg-gradient-to-r from-teal-500 to-blue-600 text-white rounded-2xl p-6 shadow-lg max-w-2xl">
                     <div className="flex items-center space-x-3">
                       <div className="w-5 h-5 bg-white/20 rounded-full animate-pulse"></div>
-                      <span className="font-medium">Generating your personalized nutrition plan... 🍎</span>
+                      <span className="font-medium inline-flex items-center gap-1.5">
+                        Generating your personalized nutrition plan...
+                        <AppleIcon className="w-4 h-4" />
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -456,21 +469,27 @@ export default function NutritionOnboardingPage() {
                 onClick={() => setUseVoiceInput(false)}
                 className={`px-6 py-3 rounded-xl font-medium transition-all duration-200 ${
                   !useVoiceInput 
-                    ? 'bg-blue-600 text-white shadow-lg' 
+                    ? 'bg-gradient-to-r from-teal-500 to-blue-600 text-white shadow-lg' 
                     : 'bg-white text-gray-600 hover:bg-gray-50 shadow-md border border-gray-200'
                 }`}
               >
-                📝 Text
+                <span className="inline-flex items-center gap-2">
+                  <NoteIcon className="w-4 h-4" />
+                  Text
+                </span>
               </button>
               <button
                 onClick={() => setUseVoiceInput(true)}
                 className={`px-6 py-3 rounded-xl font-medium transition-all duration-200 ${
-                  useVoiceInput 
-                    ? 'bg-blue-600 text-white shadow-lg' 
+                  useVoiceInput
+                    ? 'bg-gradient-to-r from-teal-500 to-blue-600 text-white shadow-lg'
                     : 'bg-white text-gray-600 hover:bg-gray-50 shadow-md border border-gray-200'
                 }`}
               >
-                🎤 Voice (Whisper)
+                <span className="inline-flex items-center gap-2">
+                  <MicIcon className="w-4 h-4" />
+                  Voice (Whisper)
+                </span>
               </button>
             </div>
 
@@ -479,12 +498,9 @@ export default function NutritionOnboardingPage() {
                 <div className="flex-1 flex items-center justify-center">
                   <WhisperVoiceInput
                     onTranscript={(text) => {
-                      setInputValue(text);
-                      setTimeout(() => {
-                        if (text.trim()) {
-                          handleSubmit(new Event('submit') as any);
-                        }
-                      }, 500);
+                      if (text.trim()) {
+                        handleSubmit(undefined, text);
+                      }
                     }}
                     onError={(error) => {
                       console.error('Voice input error:', error);
@@ -502,11 +518,11 @@ export default function NutritionOnboardingPage() {
                       value={inputValue}
                       onChange={(e) => setInputValue(e.target.value)}
                       placeholder="Tell me about your nutrition needs..."
-                      className="w-full p-4 pr-12 text-lg border-0 rounded-2xl bg-white shadow-lg focus:outline-none focus:ring-4 focus:ring-blue-500/20 transition-all duration-200"
+                      className="w-full p-4 pr-12 text-lg border-0 rounded-2xl bg-white shadow-lg focus:outline-none focus:ring-4 focus:ring-teal-500/20 transition-all duration-200"
                       disabled={isLoading || isGeneratingPlan}
                     />
                     <div className="absolute right-4 top-1/2 transform -translate-y-1/2">
-                      <span className="text-gray-400 text-xl">💬</span>
+                      <ChatBubbleIcon className="w-5 h-5 text-gray-400" />
                     </div>
                   </div>
                   <button 
@@ -514,7 +530,7 @@ export default function NutritionOnboardingPage() {
                     className={`px-8 py-4 rounded-2xl font-semibold text-lg transition-all duration-200 transform hover:scale-105 ${
                       isLoading || isGeneratingPlan || !inputValue.trim()
                         ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                        : "bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg hover:shadow-xl hover:from-blue-700 hover:to-purple-700"
+                        : "bg-gradient-to-r from-teal-500 to-blue-600 text-white shadow-lg hover:shadow-xl hover:from-teal-600 hover:to-blue-700"
                     }`}
                     disabled={isLoading || isGeneratingPlan || !inputValue.trim()}
                   >
