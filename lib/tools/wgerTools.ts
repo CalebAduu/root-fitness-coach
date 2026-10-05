@@ -281,6 +281,98 @@ export async function searchExercises(
   }
 }
 
+// Plain-language muscle names -> patterns that match wger's muscle names ("Quads", "Glutes", "Lats", ...)
+const MUSCLE_PATTERNS: Record<string, RegExp> = {
+  glute: /glut/,
+  hamstring: /hamstring/,
+  quadriceps: /quad/,
+  calves: /calf|calves|gastrocnemius|soleus/,
+  abdominals: /\babs?\b|abdom|oblique/,
+  lats: /lat|trap|rhomboid/,
+  back: /back|erector|lat|trap|rhomboid/,
+  chest: /chest|pector/,
+  shoulders: /shoulder|delt/,
+  arms: /bicep|tricep|brachi|forearm/,
+};
+
+// Not strength exercises: skip them when proposing movements for a workout plan
+const NON_TRAINING_NAME = /foam roll|smr|stretch|mobility|massage|warm.?up/i;
+
+// Equipment words in an exercise's NAME. wger sometimes tags equipment-based exercises as bodyweight
+// (e.g. "TRX Rows"), so without gym access these names are dropped unless the user owns that equipment.
+const EQUIPMENT_IN_NAME = /trx|suspension|machine|cable|barbell|dumbbell|kettlebell|bench|pull.?up|chin.?up|\bbar\b|rope|sled|plate|smith|\bballs?\b|\bbands?\b|\bbosu\b|\bdips?\b|\bshrugs?\b|\bswim/i;
+
+export interface ExerciseCandidateGroup {
+  muscle: string;
+  exercises: WgerExerciseSummary[];
+}
+
+// Real exercises (from wger) that fit a user's target muscles, equipment and injuries.
+// The plan route hands these to the model so exercises come from a real database instead of
+// being invented. Deterministic: the same inputs always give the same candidates.
+export async function findExerciseCandidates(options: {
+  muscles: string[];              // priority muscles (more candidates each)
+  fillerMuscles?: string[];       // other muscles, kept small so full-body days are still possible
+  gymAccess: boolean;             // true = every wger equipment type is allowed
+  equipment?: string[];           // the user's own equipment (free text), used when gymAccess is false
+  excludeKeywords?: string[];     // exercise-name keywords to avoid (e.g. derived from injuries)
+  perMuscle?: number;
+  fillerPerMuscle?: number;
+}): Promise<WgerResult<ExerciseCandidateGroup[]>> {
+  try {
+    const index = await getExerciseIndex();
+    const exclude = (options.excludeKeywords || []).map((k) => k.toLowerCase());
+
+    // Free-text equipment ("dumbbells", "resistance bands") -> word stems matched against wger's equipment names
+    const stems = (options.equipment || [])
+      .flatMap((e) => e.toLowerCase().split(/[^a-z]+/))
+      .filter((t) => t.length >= 4)
+      .map((t) => t.replace(/s$/, ''));
+    // wger leaves `equipment` empty on many machine exercises, so an empty list means "unknown", not
+    // "bodyweight". Without gym access an exercise must carry an explicit bodyweight/mat tag or match
+    // equipment the user owns.
+    const equipmentOk = (e: WgerExerciseSummary) =>
+      options.gymAccess ||
+      (e.equipment.length > 0 &&
+        e.equipment.every((name) => {
+          const n = name.toLowerCase();
+          return /none|bodyweight|gym mat/.test(n) || stems.some((s) => n.includes(s));
+        }));
+
+    const used = new Set<number>();
+    const pick = (muscle: string, limit: number): WgerExerciseSummary[] => {
+      const pattern = MUSCLE_PATTERNS[muscle];
+      if (!pattern) return [];
+      const picked = index
+        .filter((e) => !used.has(e.id) && pattern.test(e.muscles.join(' ').toLowerCase()))
+        .filter((e) => !NON_TRAINING_NAME.test(e.name) && !exclude.some((k) => e.name.toLowerCase().includes(k)))
+        .filter(equipmentOk)
+        .filter((e) => options.gymAccess || !EQUIPMENT_IN_NAME.test(e.name) || stems.some((st) => e.name.toLowerCase().includes(st)))
+        // Prefer well-documented, simple-equipment exercises with short, standard names
+        .sort((a, b) =>
+          Number(!a.description) - Number(!b.description) ||
+          a.equipment.length - b.equipment.length ||
+          a.name.length - b.name.length ||
+          a.name.localeCompare(b.name))
+        .slice(0, limit);
+      picked.forEach((e) => used.add(e.id));
+      return picked;
+    };
+
+    const groups: ExerciseCandidateGroup[] = [];
+    for (const m of options.muscles) groups.push({ muscle: m, exercises: pick(m, options.perMuscle ?? 8) });
+    for (const m of options.fillerMuscles || []) {
+      if (!options.muscles.includes(m)) groups.push({ muscle: m, exercises: pick(m, options.fillerPerMuscle ?? 4) });
+    }
+    return { success: true, data: groups.filter((g) => g.exercises.length > 0), count: groups.length };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? `WGER exercise lookup failed: ${error.message}` : 'WGER exercise lookup failed',
+    };
+  }
+}
+
 export async function getExerciseDetails(exerciseId: number): Promise<WgerResult<WgerExercise>> {
   return makeWgerRequest<WgerExercise>(`/exercise/${exerciseId}/`);
 }

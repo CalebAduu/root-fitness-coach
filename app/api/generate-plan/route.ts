@@ -1,8 +1,7 @@
 import OpenAI from 'openai';
 // import { createClient } from '@supabase/supabase-js'; // Commented out - not using database yet
-import { searchExercises, findExercisesByMuscleGroup } from '../../../lib/tools/wgerTools';
-import { findHealthyMeals, findHighProteinMeals } from '../../../lib/tools/nutritionTools';
-import { EvalTracer, traceLlm, usageFromOpenAI, withEval } from '../../../lib/evals/evalTrace'; // EVAL HOOK: import
+import { findExerciseCandidates } from '../../../lib/tools/wgerTools';
+import { EvalTracer, traceLlm, traceTool, usageFromOpenAI, withEval } from '../../../lib/evals/evalTrace'; // EVAL HOOK: import
 
 // Create an OpenAI API client
 const openaiClient = new OpenAI({
@@ -203,6 +202,27 @@ function mapGoalsToMuscles(goalsRaw: string, gender?: string): string[] {
   return Array.from(new Set(muscles));
 }
 
+// Muscle groups used when the user's goals don't point at specific ones, and as a small
+// "filler" pool so full-body days are always possible.
+const DEFAULT_TARGET_MUSCLES = ['quadriceps', 'glute', 'hamstring', 'chest', 'lats', 'shoulders', 'abdominals'];
+
+// Best-effort: exercise-name keywords to keep out of the suggested list for common injuries.
+// The prompt also tells the model to avoid aggravating injuries; this just removes the obvious ones up front.
+const INJURY_AVOID: Record<string, string[]> = {
+  knee: ['lunge', 'jump', 'plyo', 'burpee', 'pistol', 'shrimp', 'box', 'sprint', 'skater', 'squat', 'leg press', 'sled', 'hack', 'leg extension', 'stair', 'climb', 'step', 'run', 'jog', 'wall-sit', 'wall sit', 'snap', 'battle', 'glider', 'single leg', 'single-leg', 'deadlift', 'sumo', 'swim'],
+  back: ['deadlift', 'good morning', 'sit-up', 'situp', 'crunch', 'superman', 'hyperextension', 'bent over'],
+  shoulder: ['overhead', 'military', 'upright', 'dip', 'behind the neck', 'snatch', 'handstand'],
+  wrist: ['push-up', 'pushup', 'plank', 'handstand'],
+  ankle: ['jump', 'plyo', 'skater', 'sprint', 'burpee', 'calf raise'],
+  hip: ['lunge', 'sumo', 'deep'],
+  neck: ['shrug', 'behind the neck'],
+};
+
+const MUSCLE_LABELS: Record<string, string> = {
+  glute: 'Glutes', hamstring: 'Hamstrings', quadriceps: 'Quadriceps', calves: 'Calves', abdominals: 'Abs / core',
+  lats: 'Back (lats)', back: 'Back', chest: 'Chest', shoulders: 'Shoulders', arms: 'Arms',
+};
+
 // Helper function to create a timeout promise
 function createTimeoutPromise(ms: number) {
   return new Promise((_, reject) => 
@@ -230,6 +250,39 @@ export async function POST(req: Request) {
     
     console.log('OpenAI API key is configured, proceeding with generation...');
 
+    // Real exercises from wger, matched to the user's target muscles, equipment and injuries.
+    // If wger is slow or unavailable the plan is still generated, just without the list.
+    let exerciseOptionsBlock = '';
+    try {
+      const injuryText = (userData.injuries || []).join(' ').toLowerCase();
+      const avoid = Object.entries(INJURY_AVOID).filter(([area]) => injuryText.includes(area)).flatMap(([, words]) => words);
+      const mapped = mapGoalsToMuscles(userData.fitnessGoals || '', userData.gender).filter((m) => m !== 'full body' && m !== 'hip flexors');
+      const targets = (mapped.length ? mapped : DEFAULT_TARGET_MUSCLES).slice(0, 6);
+      const lookup = await Promise.race([
+        traceTool(tracer, { name: 'findExerciseCandidates', args: { targets, gymAccess: !!userData.gymAccess, avoid }, round: 0 }, () =>
+          findExerciseCandidates({
+            muscles: targets,
+            fillerMuscles: DEFAULT_TARGET_MUSCLES,
+            gymAccess: !!userData.gymAccess,
+            equipment: userData.equipment,
+            excludeKeywords: avoid,
+          })),
+        createTimeoutPromise(12000),
+      ]) as Awaited<ReturnType<typeof findExerciseCandidates>>;
+
+      if (lookup.success && lookup.data.length > 0) {
+        const lines = lookup.data.map((g) => `- ${MUSCLE_LABELS[g.muscle] || g.muscle}: ${g.exercises.map((e) => e.name).join(', ')}`);
+        exerciseOptionsBlock = `
+
+AVAILABLE EXERCISES (real exercises from the wger database, already matched to this user's target muscles, equipment and injuries):
+${lines.join('\n')}
+Build every day from the exercise names above, copying the names exactly. Only use an exercise that is not on this list if a day cannot be completed otherwise.`;
+        tracer?.note('exercise_candidates', lookup.data.map((g) => ({ muscle: g.muscle, exercises: g.exercises.map((e) => e.name) })));
+      }
+    } catch (lookupError) {
+      console.log('wger exercise lookup skipped:', lookupError instanceof Error ? lookupError.message : lookupError);
+    }
+
     // Enhanced prompt for comprehensive workout plans
     const systemPrompt = `You are an expert fitness coach. Create a comprehensive workout plan as valid JSON only. No explanations or markdown.
 
@@ -247,23 +300,23 @@ Return this exact JSON structure:
   },
   "weeklyPlan": {
     "Day 1": {
-      "focus": "Full Body Strength",
+      "focus": "<focus of this day, e.g. Lower Body Strength>",
       "exercises": [
-        {"name": "Squats", "sets": 3, "reps": "8-12", "rest": "60 seconds"},
-        {"name": "Push-ups", "sets": 3, "reps": "8-12", "rest": "60 seconds"},
-        {"name": "Lunges", "sets": 3, "reps": "10 each leg", "rest": "60 seconds"},
-        {"name": "Plank", "sets": 3, "reps": "30-45 sec", "rest": "60 seconds"}
+        {"name": "<exercise name>", "sets": 3, "reps": "8-12", "rest": "60 seconds"},
+        {"name": "<exercise name>", "sets": 3, "reps": "8-12", "rest": "60 seconds"},
+        {"name": "<exercise name>", "sets": 3, "reps": "10 each leg", "rest": "60 seconds"},
+        {"name": "<exercise name>", "sets": 3, "reps": "30-45 sec", "rest": "45 seconds"}
       ],
       "duration": "35-45 minutes",
       "difficulty": "${userData.experienceLevel}"
     },
     "Day 2": {
-      "focus": "Upper Body & Core",
+      "focus": "<focus of this day>",
       "exercises": [
-        {"name": "Rows", "sets": 3, "reps": "8-12", "rest": "60 seconds"},
-        {"name": "Overhead Press", "sets": 3, "reps": "8-12", "rest": "60 seconds"},
-        {"name": "Tricep Dips", "sets": 3, "reps": "8-12", "rest": "60 seconds"},
-        {"name": "Russian Twists", "sets": 3, "reps": "20 each side", "rest": "45 seconds"}
+        {"name": "<exercise name>", "sets": 3, "reps": "8-12", "rest": "60 seconds"},
+        {"name": "<exercise name>", "sets": 3, "reps": "8-12", "rest": "60 seconds"},
+        {"name": "<exercise name>", "sets": 3, "reps": "8-12", "rest": "60 seconds"},
+        {"name": "<exercise name>", "sets": 3, "reps": "20 each side", "rest": "45 seconds"}
       ],
       "duration": "35-45 minutes",
       "difficulty": "${userData.experienceLevel}"
@@ -287,6 +340,9 @@ REQUIREMENTS:
 - Age: ${userData.age} years old
 - Equipment: ${userData.gymAccess ? 'Full gym access' : 'Home equipment: ' + (userData.equipment?.join(', ') || 'bodyweight')}
 - Injuries: ${userData.injuries?.join(', ') || 'None'}
+- Do not include any exercise that could aggravate the injuries above; choose safer alternatives
+- If any injuries are listed, safetyNotes must include a specific note for each injury (what to avoid or modify, and when to stop), in addition to general notes
+${exerciseOptionsBlock}
 
 Make each day unique with different exercises and focus areas.`;
 

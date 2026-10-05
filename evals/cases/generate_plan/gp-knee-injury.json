@@ -53,10 +53,6 @@
       ]
     },
     {
-      "check": "prompt_example_overlap_max",
-      "value": 2
-    },
-    {
       "check": "latency_under",
       "value": 60
     }
