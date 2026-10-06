@@ -41,6 +41,16 @@ interface WorkoutPlan {
   safetyNotes: string[];
 }
 
+// Quick adjustment choices: the label is shown on the chip, the request is what the model is told
+const ADJUST_OPTIONS = [
+  { label: "Easier", request: "Make the workouts easier: fewer sets, lower intensity." },
+  { label: "Harder", request: "Make the workouts harder: more challenging exercises and more volume." },
+  { label: "Shorter workouts", request: "Keep each workout shorter (about 30 minutes) with fewer exercises." },
+  { label: "Different exercises", request: "Swap in different exercises for more variety." },
+  { label: "More core", request: "Add more core and abs work." },
+  { label: "More cardio", request: "Add more cardio and conditioning." },
+];
+
 // Friendly labels for the tools Root can call, shown under each answer
 const TOOL_LABELS: Record<string, string> = {
   search_exercises: "Exercise database",
@@ -84,6 +94,15 @@ export default function WorkoutPlanPage() {
   
   // Nutrition plan state
   const [nutritionPlan, setNutritionPlan] = useState<any>(null);
+
+  // Adjust-plan panel state
+  const [showAdjust, setShowAdjust] = useState(false);
+  const [adjustChips, setAdjustChips] = useState<string[]>([]);
+  const [adjustText, setAdjustText] = useState("");
+  const [adjustDays, setAdjustDays] = useState(3);
+  const [isAdjusting, setIsAdjusting] = useState(false);
+  const [adjustError, setAdjustError] = useState("");
+  const [adjustSuccess, setAdjustSuccess] = useState(false);
 
   useEffect(() => {
     // Get workout plan from sessionStorage
@@ -215,6 +234,58 @@ export default function WorkoutPlanPage() {
       setQaTools([]);
     } finally {
       setIsLoadingQA(false);
+    }
+  };
+
+  const openAdjustPanel = () => {
+    setAdjustChips([]);
+    setAdjustText("");
+    setAdjustError("");
+    setAdjustDays(Number(userData?.workoutDays) || 3);
+    setShowAdjust(true);
+  };
+
+  const handleAdjustPlan = async () => {
+    if (!workoutPlan || !userData) return;
+    const requests = [...adjustChips.map((c) => ADJUST_OPTIONS.find((o) => o.label === c)?.request || c), adjustText.trim()].filter(Boolean);
+    const daysChanged = adjustDays !== (Number(userData.workoutDays) || 3);
+    if (requests.length === 0 && !daysChanged) return;
+
+    setIsAdjusting(true);
+    setAdjustError("");
+    try {
+      // Describe the current plan so the model can change it instead of starting from scratch
+      const currentPlan = Object.entries(workoutPlan.weeklyPlan)
+        .map(([day, d]) => `${day} (${d.focus}): ${d.exercises.map((e) => e.name).join(", ")}`)
+        .join("\n");
+
+      const response = await fetch("/api/generate-plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...userData,
+          workoutDays: adjustDays,
+          adjustments: requests.join(" ") || `Change the plan to ${adjustDays} days per week.`,
+          currentPlan,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || result.error) throw new Error(result.error || "Failed to adjust plan");
+
+      const { profileId, planId, ...newPlan } = result;
+      const updatedUser = { ...userData, workoutDays: adjustDays };
+      sessionStorage.setItem("workoutPlan", JSON.stringify(newPlan));
+      sessionStorage.setItem("userData", JSON.stringify(updatedUser));
+      setWorkoutPlan(newPlan);
+      setUserData(updatedUser);
+      setShowAdjust(false);
+      setAdjustSuccess(true);
+      setTimeout(() => setAdjustSuccess(false), 6000);
+    } catch (error) {
+      console.error("Error adjusting plan:", error);
+      setAdjustError("Sorry, I couldn't update your plan right now. Please try again.");
+    } finally {
+      setIsAdjusting(false);
     }
   };
 
@@ -390,9 +461,17 @@ export default function WorkoutPlanPage() {
                 </div>
               </div>
               <div className="mt-4">
-                <button className="bg-gradient-to-r from-teal-500 to-blue-600 text-white px-6 py-3 rounded-lg hover:from-teal-600 hover:to-blue-700 transition-all duration-200">
+                <button
+                  onClick={openAdjustPanel}
+                  className="bg-gradient-to-r from-teal-500 to-blue-600 text-white px-6 py-3 rounded-lg hover:from-teal-600 hover:to-blue-700 transition-all duration-200"
+                >
                   Adjust Your Plan
                 </button>
+                {adjustSuccess && (
+                  <span className="ml-4 inline-flex items-center gap-1 text-green-700 font-medium">
+                    <CheckCircleIcon className="w-5 h-5" /> Plan updated
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -796,6 +875,85 @@ export default function WorkoutPlanPage() {
           )}
         </div>
       </div>
+
+      {/* Adjust-plan panel */}
+      {showAdjust && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" role="dialog" aria-modal="true" aria-label="Adjust your plan">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 sm:p-8 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-2xl font-bold text-gray-900">Adjust your plan</h3>
+                <p className="text-gray-600 text-sm mt-1">Tell Root what to change. It will rebuild your plan around your request.</p>
+              </div>
+              <button onClick={() => !isAdjusting && setShowAdjust(false)} className="text-gray-400 hover:text-gray-700 text-2xl leading-none" aria-label="Close">&times;</button>
+            </div>
+
+            <p className="text-sm font-semibold text-gray-700 mb-2">Quick options</p>
+            <div className="flex flex-wrap gap-2 mb-5">
+              {ADJUST_OPTIONS.map((o) => {
+                const active = adjustChips.includes(o.label);
+                return (
+                  <button
+                    key={o.label}
+                    type="button"
+                    disabled={isAdjusting}
+                    onClick={() => setAdjustChips(active ? adjustChips.filter((c) => c !== o.label) : [...adjustChips, o.label])}
+                    className={`px-4 py-2 rounded-full text-sm font-medium border transition-colors ${
+                      active ? "bg-gradient-to-r from-teal-500 to-blue-600 text-white border-transparent" : "bg-white text-gray-700 border-gray-300 hover:border-teal-400"
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="adjust-days">Days per week</label>
+            <select
+              id="adjust-days"
+              value={adjustDays}
+              disabled={isAdjusting}
+              onChange={(e) => setAdjustDays(Number(e.target.value))}
+              className="w-full p-3 border border-gray-300 rounded-xl mb-5 focus:outline-none focus:ring-4 focus:ring-teal-500/20"
+            >
+              {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+                <option key={n} value={n}>{n} {n === 1 ? "day" : "days"}</option>
+              ))}
+            </select>
+
+            <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="adjust-text">Anything else? (optional)</label>
+            <textarea
+              id="adjust-text"
+              value={adjustText}
+              disabled={isAdjusting}
+              onChange={(e) => setAdjustText(e.target.value)}
+              rows={3}
+              maxLength={500}
+              placeholder="e.g. My shoulder hurts, avoid overhead presses"
+              className="w-full p-3 border border-gray-300 rounded-xl resize-none mb-4 focus:outline-none focus:ring-4 focus:ring-teal-500/20"
+            />
+
+            {adjustError && <p className="text-red-600 text-sm mb-3">{adjustError}</p>}
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleAdjustPlan}
+                disabled={isAdjusting || (adjustChips.length === 0 && !adjustText.trim() && adjustDays === (Number(userData?.workoutDays) || 3))}
+                className="flex-1 bg-gradient-to-r from-teal-500 to-blue-600 text-white px-6 py-3 rounded-xl font-semibold hover:from-teal-600 hover:to-blue-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isAdjusting ? "Updating your plan..." : "Update my plan"}
+              </button>
+              <button
+                onClick={() => setShowAdjust(false)}
+                disabled={isAdjusting}
+                className="px-6 py-3 rounded-xl font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

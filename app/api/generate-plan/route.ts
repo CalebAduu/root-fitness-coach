@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 // import { createClient } from '@supabase/supabase-js'; // Commented out - not using database yet
 import { findExerciseCandidates } from '../../../lib/tools/wgerTools';
-import { avoidKeywordsFor } from '../../../lib/injuries';
+import { avoidKeywordsFor, injuryAreasFor } from '../../../lib/injuries';
 import { EvalTracer, traceLlm, traceTool, usageFromOpenAI, withEval } from '../../../lib/evals/evalTrace'; // EVAL HOOK: import
 
 // Create an OpenAI API client
@@ -41,6 +41,9 @@ interface UserData {
   injuries: string[];
   workoutDays: number;
   gender?: string;
+  // Set when the user adjusts an existing plan from the dashboard
+  adjustments?: string;
+  currentPlan?: string;
 }
 
 interface WorkoutPlan {
@@ -243,8 +246,8 @@ export async function POST(req: Request) {
     // If wger is slow or unavailable the plan is still generated, just without the list.
     let exerciseOptionsBlock = '';
     try {
-      const avoid = avoidKeywordsFor(userData.injuries);
-      const mapped = mapGoalsToMuscles(userData.fitnessGoals || '', userData.gender).filter((m) => m !== 'full body' && m !== 'hip flexors');
+      const avoid = avoidKeywordsFor([...(userData.injuries || []), userData.adjustments || '']);
+      const mapped = mapGoalsToMuscles(`${userData.adjustments || ''} ${userData.fitnessGoals || ''}`, userData.gender).filter((m) => m !== 'full body' && m !== 'hip flexors');
       const targets = (mapped.length ? mapped : DEFAULT_TARGET_MUSCLES).slice(0, 6);
       const lookup = await Promise.race([
         traceTool(tracer, { name: 'findExerciseCandidates', args: { targets, gymAccess: !!userData.gymAccess, avoid }, round: 0 }, () =>
@@ -270,6 +273,18 @@ Build every day from the exercise names above, copying the names exactly. Only u
     } catch (lookupError) {
       console.log('wger exercise lookup skipped:', lookupError instanceof Error ? lookupError.message : lookupError);
     }
+
+    // When the user adjusts an existing plan, give the model their request and the plan so far
+    const adjustmentRequest = (userData.adjustments || '').trim().slice(0, 600);
+    const adjustmentBlock = adjustmentRequest
+      ? `
+
+PLAN ADJUSTMENT: the user already has a plan and wants it changed.
+Their request: ${adjustmentRequest}
+Their current plan:
+${(userData.currentPlan || '').slice(0, 3000)}
+Apply the request while keeping the parts that still fit. Still follow the exercise list, equipment and injuries above, and treat any pain or injury mentioned in the request as a real injury to avoid; if the request mentions pain or an injury, safetyNotes must include a specific note about it.`
+      : '';
 
     // Enhanced prompt for comprehensive workout plans
     const systemPrompt = `You are an expert fitness coach. Create a comprehensive workout plan as valid JSON only. No explanations or markdown.
@@ -316,7 +331,7 @@ Return this exact JSON structure:
     "nutrition": ["Stay hydrated", "Eat protein within 30 min post-workout", "Include complex carbs", "Focus on whole foods"],
     "progression": ["Increase weight gradually", "Prioritize form over load", "Track progress", "Take rest days"]
   },
-  "safetyNotes": ["Listen to your body", "Stop if you feel pain", "Consult doctor if needed", "Warm up properly"]
+  "safetyNotes": ["<general safety note>", "<note about when to stop or see a doctor>", "<a specific note for each injury or pain the user mentioned>"]
 }
 
 REQUIREMENTS:
@@ -330,7 +345,7 @@ REQUIREMENTS:
 - Injuries: ${userData.injuries?.join(', ') || 'None'}
 - Do not include any exercise that could aggravate the injuries above; choose safer alternatives
 - If any injuries are listed, safetyNotes must include a specific note for each injury (what to avoid or modify, and when to stop), in addition to general notes
-${exerciseOptionsBlock}
+${exerciseOptionsBlock}${adjustmentBlock}
 
 Make each day unique with different exercises and focus areas.`;
 
@@ -400,6 +415,14 @@ Make each day unique with different exercises and focus areas.`;
     try {
       const workoutPlan: WorkoutPlan = JSON.parse(responseText);
       console.log('✅ Successfully parsed workout plan from OpenAI');
+      // Make sure every injury area (profile or adjustment request) gets its own safety note
+      const injuryAreas = injuryAreasFor([...(userData.injuries || []), userData.adjustments || '']);
+      workoutPlan.safetyNotes = Array.isArray(workoutPlan.safetyNotes) ? workoutPlan.safetyNotes : [];
+      for (const area of injuryAreas) {
+        if (!workoutPlan.safetyNotes.some((n) => n.toLowerCase().includes(area))) {
+          workoutPlan.safetyNotes.push(`Because of your ${area} issue, this plan avoids exercises that load that area. Stop any movement that causes pain and check with a doctor or physiotherapist if it persists.`);
+        }
+      }
       
       // Only attempt database operations if Supabase is available
       if (supabase) {
