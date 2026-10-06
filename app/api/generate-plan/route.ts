@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 // import { createClient } from '@supabase/supabase-js'; // Commented out - not using database yet
 import { findExerciseCandidates } from '../../../lib/tools/wgerTools';
+import { avoidKeywordsFor } from '../../../lib/injuries';
 import { EvalTracer, traceLlm, traceTool, usageFromOpenAI, withEval } from '../../../lib/evals/evalTrace'; // EVAL HOOK: import
 
 // Create an OpenAI API client
@@ -206,18 +207,6 @@ function mapGoalsToMuscles(goalsRaw: string, gender?: string): string[] {
 // "filler" pool so full-body days are always possible.
 const DEFAULT_TARGET_MUSCLES = ['quadriceps', 'glute', 'hamstring', 'chest', 'lats', 'shoulders', 'abdominals'];
 
-// Best-effort: exercise-name keywords to keep out of the suggested list for common injuries.
-// The prompt also tells the model to avoid aggravating injuries; this just removes the obvious ones up front.
-const INJURY_AVOID: Record<string, string[]> = {
-  knee: ['lunge', 'jump', 'plyo', 'burpee', 'pistol', 'shrimp', 'box', 'sprint', 'skater', 'squat', 'leg press', 'sled', 'hack', 'leg extension', 'stair', 'climb', 'step', 'run', 'jog', 'wall-sit', 'wall sit', 'snap', 'battle', 'glider', 'single leg', 'single-leg', 'deadlift', 'sumo', 'swim'],
-  back: ['deadlift', 'good morning', 'sit-up', 'situp', 'crunch', 'superman', 'hyperextension', 'bent over'],
-  shoulder: ['overhead', 'military', 'upright', 'dip', 'behind the neck', 'snatch', 'handstand'],
-  wrist: ['push-up', 'pushup', 'plank', 'handstand'],
-  ankle: ['jump', 'plyo', 'skater', 'sprint', 'burpee', 'calf raise'],
-  hip: ['lunge', 'sumo', 'deep'],
-  neck: ['shrug', 'behind the neck'],
-};
-
 const MUSCLE_LABELS: Record<string, string> = {
   glute: 'Glutes', hamstring: 'Hamstrings', quadriceps: 'Quadriceps', calves: 'Calves', abdominals: 'Abs / core',
   lats: 'Back (lats)', back: 'Back', chest: 'Chest', shoulders: 'Shoulders', arms: 'Arms',
@@ -254,8 +243,7 @@ export async function POST(req: Request) {
     // If wger is slow or unavailable the plan is still generated, just without the list.
     let exerciseOptionsBlock = '';
     try {
-      const injuryText = (userData.injuries || []).join(' ').toLowerCase();
-      const avoid = Object.entries(INJURY_AVOID).filter(([area]) => injuryText.includes(area)).flatMap(([, words]) => words);
+      const avoid = avoidKeywordsFor(userData.injuries);
       const mapped = mapGoalsToMuscles(userData.fitnessGoals || '', userData.gender).filter((m) => m !== 'full body' && m !== 'hip flexors');
       const targets = (mapped.length ? mapped : DEFAULT_TARGET_MUSCLES).slice(0, 6);
       const lookup = await Promise.race([

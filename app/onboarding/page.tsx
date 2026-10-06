@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import WhisperVoiceInput from "../../components/WhisperVoiceInput";
+import { parseInjuryReply } from "../../lib/injuries";
 
 interface Message {
   id: string;
@@ -337,24 +338,13 @@ export default function OnboardingPage() {
         msg.text.toLowerCase().includes("home")
       )?.text.split(",").map(item => item.trim()) || [];
 
-      const injuries = userMessages.find(msg => 
-        msg.text.toLowerCase().includes("injury") || 
-        msg.text.toLowerCase().includes("pain") ||
-        msg.text.toLowerCase().includes("hurt") ||
-        msg.text.toLowerCase().includes("condition") ||
-        msg.text.toLowerCase().includes("health") ||
-        msg.text.toLowerCase().includes("medical") ||
-        msg.text.toLowerCase().includes("chronic") ||
-        msg.text.toLowerCase().includes("joint") ||
-        msg.text.toLowerCase().includes("back") ||
-        msg.text.toLowerCase().includes("knee") ||
-        msg.text.toLowerCase().includes("shoulder") ||
-        msg.text.toLowerCase().includes("wrist") ||
-        msg.text.toLowerCase().includes("ankle") ||
-        msg.text.toLowerCase().includes("none") ||
-        msg.text.toLowerCase().includes("no injuries") ||
-        msg.text.toLowerCase().includes("no health")
-      )?.text.split(",").map(item => item.trim()) || [];
+      // Injuries: use the user's reply to the injury question. (Matching the first message that mentions
+      // "back" or "health" picked up unrelated answers, e.g. the goals reply, and missed the real injury.)
+      const injuryPromptIdx = messages.findIndex(m => m.sender === 'bot' && /injur|medical|health condition/i.test(m.text));
+      const injuryReply = injuryPromptIdx >= 0
+        ? messages.slice(injuryPromptIdx + 1).find(m => m.sender === 'user')?.text
+        : undefined;
+      const injuries = parseInjuryReply(injuryReply);
 
       // Parse workout days robustly
       let workoutDays = 3;
