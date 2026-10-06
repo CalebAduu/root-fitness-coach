@@ -81,6 +81,19 @@ function extractSources(toolName: string, output: string): Source[] {
   return [];
 }
 
+// Exercises returned by search_exercises, kept as candidate sources (link to the wger exercise page)
+function extractExerciseCandidates(output: string): Source[] {
+  try {
+    const parsed = JSON.parse(output);
+    if (!Array.isArray(parsed.exercises)) return [];
+    return parsed.exercises
+      .filter((ex: { id?: number; name?: string }) => ex?.id && ex?.name)
+      .map((ex: { id: number; name: string }) => ({ url: `https://wger.de/en/exercise/${ex.id}/view/`, title: `${ex.name} (wger exercise database)` }));
+  } catch {
+    return [];
+  }
+}
+
 // Removes exercises from a search_exercises result when their name matches a keyword the user's injury rules out.
 // Done in code because relying on the model to filter its own search results was not reliable.
 function filterExercisesForInjury(output: string, avoid: string[], limit: number): string {
@@ -159,6 +172,7 @@ About the user: ${describeUser(userContext)}${injuryRule}`
 
     const toolsUsed: ToolUse[] = [];
     const sources: Source[] = [];
+    const exerciseCandidates: Array<Source & { name: string }> = [];
     let answer = '';
 
     for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
@@ -204,6 +218,9 @@ About the user: ${describeUser(userContext)}${injuryRule}`
       for (const { call, output } of results) {
         toolsUsed.push({ name: call.name, args: call.args as Record<string, unknown> });
         sources.push(...extractSources(call.name, output));
+        if (call.name === 'search_exercises') {
+          exerciseCandidates.push(...extractExerciseCandidates(output).map((c) => ({ ...c, name: c.title.replace(' (wger exercise database)', '') })));
+        }
         messages.push(new ToolMessage({ content: output, tool_call_id: call.id ?? call.name }));
       }
     }
@@ -215,6 +232,15 @@ About the user: ${describeUser(userContext)}${injuryRule}`
       .replace(/\*\*([^*]+)\*\*/g, '$1')
       .replace(/^#{1,6}\s+/gm, '')
       .trim();
+
+    // Cite only the wger exercises the answer actually names (the model rarely uses every search result)
+    const answerLower = answer.toLowerCase();
+    sources.push(
+      ...exerciseCandidates
+        .filter((c) => answerLower.includes(c.name.toLowerCase()))
+        .slice(0, 5)
+        .map(({ url, title }) => ({ url, title }))
+    );
 
     // De-duplicate sources by URL
     const uniqueSources = Array.from(new Map(sources.map((s) => [s.url, s])).values());
