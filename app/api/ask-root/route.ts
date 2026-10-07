@@ -14,6 +14,7 @@ const MAX_TOOL_ROUNDS = 5;
 // real articles and can cite their links. Leaving it to the model was unreliable: it often skipped the tool.
 // Symptoms that need a doctor, not a workout: no forced exercise search, and the prompt tells Root to stop and refer
 const RED_FLAG = /chest pain|chest tight|dizz|faint|pass(?:ed)? out|short(?:ness)? of breath|can'?t breathe|heart palpit|numb|blurred vision|severe pain/i;
+const MEAL_REQUEST = /dinner|lunch|breakfast|meal|recipe|snack|food|dish|eat\b/i;
 const EXERCISE_REQUEST = /exercis|workout|routine|movement|drill|stretch|squat|lunge|quad|hamstring|glute|calf|biceps|triceps|chest|shoulder|\babs\b|\bcore\b|\bback\b|legs?\b|arms?\b/i;
 const FITNESS_TOPIC =
   /exercis|workout|train|lift|muscle|protein|diet|nutrition|calori|carb|eat|food|meal|snack|supplement|creatine|squat|deadlift|bench|press|pull|push|cardio|stretch|mobility|recover|sleep|fasted|fasting|weight|fat|abs|core|glute|quad|hamstring|calf|biceps|triceps|shoulder|knee|back|form|technique|reps?|sets?|gym|health|pain|injur|sore|warm.?up|overload|hypertrophy|strength|endurance|run|swim|yoga|plank/i;
@@ -126,6 +127,14 @@ function filterExercisesForInjury(output: string, avoid: string[], limit: number
   }
 }
 
+// Picks the knowledge-base mode for a question
+function knowledgeQuestionType(message: string): 'general' | 'workout' | 'form' | 'nutrition' {
+  if (/how (do|to|should)|form|technique|proper/i.test(message)) return 'form';
+  if (/eat|food|protein|diet|meal|calori|carb|nutrition|fasted|fasting|supplement|creatine/i.test(message)) return 'nutrition';
+  if (EXERCISE_REQUEST.test(message)) return 'workout';
+  return 'general';
+}
+
 // Names of listed exercises ("1. Wall Sits: ...", "- Step-ups - ...") that match an avoid keyword for the user's injury
 function unsafeListedExercises(answer: string, avoid: string[]): string[] {
   const unsafe: string[] = [];
@@ -157,15 +166,14 @@ export async function POST(request: NextRequest) {
       apiKey: process.env.OPENAI_API_KEY,
     });
     const llm = baseLlm.bindTools(allTools);
-    // Fitness questions start with forced steps: a knowledge-base lookup (for citable links), then, when exercises
-    // are being asked for or the user has an injury, the exercise search (where the injury filter runs).
-    const forcedSteps: string[] = [];
     const redFlag = RED_FLAG.test(message);
-    if (!redFlag && FITNESS_TOPIC.test(message)) {
-      forcedSteps.push('ask_workout_question');
-      if (EXERCISE_REQUEST.test(message)) forcedSteps.push('search_exercises');
-    }
-    const forcedLlms = forcedSteps.map((name) => baseLlm.bindTools(allTools, { tool_choice: name }));
+    // Fitness questions always consult the knowledge base (for citable links). That lookup runs in code, in parallel
+    // with the model's first step, instead of costing a model round of its own.
+    const knowledgeLookup = !redFlag && FITNESS_TOPIC.test(message);
+    // Pure exercise requests force the exercise search as the first model step (that is where the injury filter runs).
+    // Requests that also ask for food go through the normal tool choice so the meal tools are not skipped.
+    const forceExerciseSearch = knowledgeLookup && EXERCISE_REQUEST.test(message) && !MEAL_REQUEST.test(message);
+    const forcedLlms = forceExerciseSearch ? [baseLlm.bindTools(allTools, { tool_choice: 'search_exercises' })] : [];
 
     const toolsByName = new Map(allTools.map((t) => [t.name, t]));
 
@@ -195,7 +203,7 @@ You have tools. Use them whenever they would make the answer more accurate or us
 - find_meals_by_ingredient, get_meal_details, find_healthy_meals, find_high_protein_meals, find_vegetarian_meals, search_meals_by_name, get_random_meal: find real meal ideas and recipes.
 - search_workout_demonstrations: find form videos/guides when the user asks how to do an exercise.
 - ask_workout_question: consult the fitness knowledge base for training, form, or nutrition guidance.
-Do not call tools for greetings or simple chit-chat. Never invent exercise or recipe names - use tool results. Whenever the user asks for exercise suggestions you MUST call search_exercises first and recommend only exercises that appear in its results (never list exercises from memory). For any question about training, technique, recovery, nutrition or health, and also when you suggest exercises, you MUST call ask_workout_question so your answer is backed by the knowledge base and can cite real websites; base the answer on what it returns, including its key form cues and safety advice. Prioritize safety, and respect the user's injuries and equipment.
+Do not call tools for greetings or simple chit-chat. Never invent exercise or recipe names - use tool results. Whenever the user asks for exercise suggestions you MUST call search_exercises first and recommend only exercises that appear in its results (never list exercises from memory). For any question about training, technique, recovery, nutrition or health, and also when you suggest exercises, you MUST call ask_workout_question so your answer is backed by the knowledge base and can cite real websites; base the answer on what it returns, including its key form cues and safety advice. The knowledge base is for guidance only: take exercise names from search_exercises and dish names from the meal tools, never from the knowledge base text. Prioritize safety, and respect the user's injuries and equipment.
 
 About the user: ${describeUser(userContext)}${injuryRule}${redFlagRule}`
       ),
@@ -211,16 +219,51 @@ About the user: ${describeUser(userContext)}${injuryRule}${redFlagRule}`
     const exerciseCandidates: Array<Source & { name: string }> = [];
     let answer = '';
 
+    // Start the knowledge-base lookup now so it overlaps with the first model call
+    const kbArgs = { question: message, questionType: knowledgeQuestionType(message) };
+    const kbTool = toolsByName.get('ask_workout_question');
+    const kbPromise: Promise<string> | null =
+      knowledgeLookup && kbTool
+        ? traceTool(tracer, { name: 'ask_workout_question', args: kbArgs, round: 1 }, async () => String(await (kbTool as any).invoke(kbArgs))).catch((err) =>
+            JSON.stringify({ success: false, error: err instanceof Error ? err.message : 'Tool failed' })
+          )
+        : null;
+    let kbInjected = false;
+    // Adds the lookup to the conversation as a normal tool call plus result, and collects its sources
+    const injectKnowledge = async () => {
+      if (!kbPromise || kbInjected) return;
+      kbInjected = true;
+      const output = String(await kbPromise);
+      toolsUsed.push({ name: 'ask_workout_question', args: kbArgs });
+      sources.push(...extractSources('ask_workout_question', output));
+      messages.push(
+        new AIMessage({ content: '', tool_calls: [{ name: 'ask_workout_question', args: kbArgs, id: 'kb_lookup', type: 'tool_call' }] }),
+        new ToolMessage({ content: output, tool_call_id: 'kb_lookup' })
+      );
+    };
+
     for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
       // EVAL HOOK: times this model call and records its token usage (round number in the label)
       const ai = await traceLlm(tracer, `agent_round_${round + 1}`, () => (round < forcedLlms.length ? forcedLlms[round] : llm).invoke(messages), usageFromLangChain);
       messages.push(ai);
 
       const toolCalls = ai.tool_calls ?? [];
+      // The model answered without tools before seeing the knowledge base: drop that draft and answer again with it
+      if (toolCalls.length === 0 && kbPromise && !kbInjected && round < MAX_TOOL_ROUNDS) {
+        messages.pop();
+        await injectKnowledge();
+        continue;
+      }
       // EVAL HOOK: report when the loop gave up while the model still wanted tools (answer may be empty)
       if (round === MAX_TOOL_ROUNDS && toolCalls.length > 0) tracer?.note('max_rounds_reached', true);
       if (toolCalls.length === 0 || round === MAX_TOOL_ROUNDS) {
         answer = typeof ai.content === 'string' ? ai.content : JSON.stringify(ai.content);
+        if (!kbInjected && kbPromise) {
+          const output = String(await kbPromise);
+          toolsUsed.push({ name: 'ask_workout_question', args: kbArgs });
+          sources.push(...extractSources('ask_workout_question', output));
+          kbInjected = true;
+        }
         break;
       }
 
@@ -259,6 +302,8 @@ About the user: ${describeUser(userContext)}${injuryRule}${redFlagRule}`
         }
         messages.push(new ToolMessage({ content: output, tool_call_id: call.id ?? call.name }));
       }
+      // The lookup has been running alongside this round; add its result before the model writes the answer
+      await injectKnowledge();
     }
 
     // Safety net: the model sometimes lists exercises from memory that the injury rules out. Ask it to redo the
