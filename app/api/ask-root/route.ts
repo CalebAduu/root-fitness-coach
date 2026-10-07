@@ -10,6 +10,14 @@ export const maxDuration = 60;
 
 const MAX_TOOL_ROUNDS = 5;
 
+// Fitness and nutrition questions always start with a knowledge-base lookup, so the answer is grounded in
+// real articles and can cite their links. Leaving it to the model was unreliable: it often skipped the tool.
+// Symptoms that need a doctor, not a workout: no forced exercise search, and the prompt tells Root to stop and refer
+const RED_FLAG = /chest pain|chest tight|dizz|faint|pass(?:ed)? out|short(?:ness)? of breath|can'?t breathe|heart palpit|numb|blurred vision|severe pain/i;
+const EXERCISE_REQUEST = /exercis|workout|routine|movement|drill|stretch|squat|lunge|quad|hamstring|glute|calf|biceps|triceps|chest|shoulder|\babs\b|\bcore\b|\bback\b|legs?\b|arms?\b/i;
+const FITNESS_TOPIC =
+  /exercis|workout|train|lift|muscle|protein|diet|nutrition|calori|carb|eat|food|meal|snack|supplement|creatine|squat|deadlift|bench|press|pull|push|cardio|stretch|mobility|recover|sleep|fasted|fasting|weight|fat|abs|core|glute|quad|hamstring|calf|biceps|triceps|shoulder|knee|back|form|technique|reps?|sets?|gym|health|pain|injur|sore|warm.?up|overload|hypertrophy|strength|endurance|run|swim|yoga|plank/i;
+
 interface Source {
   url: string;
   title: string;
@@ -118,6 +126,18 @@ function filterExercisesForInjury(output: string, avoid: string[], limit: number
   }
 }
 
+// Names of listed exercises ("1. Wall Sits: ...", "- Step-ups - ...") that match an avoid keyword for the user's injury
+function unsafeListedExercises(answer: string, avoid: string[]): string[] {
+  const unsafe: string[] = [];
+  for (const line of answer.split(/\r?\n/)) {
+    const item = line.match(/^\s*(?:\d+[.)]|[-*•])\s+(.*)$/);
+    if (!item) continue;
+    const name = item[1].split(/\s[-–]\s|:|\(/)[0].trim().toLowerCase();
+    if (name && avoid.some((k) => name.includes(k))) unsafe.push(item[1].split(/\s[-–]\s|:|\(/)[0].trim());
+  }
+  return unsafe;
+}
+
 export async function POST(request: NextRequest) {
   const tracer = EvalTracer.fromRequest(request); // EVAL HOOK: null unless EVAL_MODE + valid x-eval-token
   try {
@@ -130,12 +150,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Message is required and must be a string' }, { status: 400 });
     }
 
-    const llm = new ChatOpenAI({
+    const baseLlm = new ChatOpenAI({
       model: 'gpt-4o-mini',
       temperature: 0.3,
       maxTokens: 600,
       apiKey: process.env.OPENAI_API_KEY,
-    }).bindTools(allTools);
+    });
+    const llm = baseLlm.bindTools(allTools);
+    // Fitness questions start with forced steps: a knowledge-base lookup (for citable links), then, when exercises
+    // are being asked for or the user has an injury, the exercise search (where the injury filter runs).
+    const forcedSteps: string[] = [];
+    const redFlag = RED_FLAG.test(message);
+    if (!redFlag && FITNESS_TOPIC.test(message)) {
+      forcedSteps.push('ask_workout_question');
+      if (EXERCISE_REQUEST.test(message)) forcedSteps.push('search_exercises');
+    }
+    const forcedLlms = forcedSteps.map((name) => baseLlm.bindTools(allTools, { tool_choice: name }));
 
     const toolsByName = new Map(allTools.map((t) => [t.name, t]));
 
@@ -146,6 +176,12 @@ export async function POST(request: NextRequest) {
       ? `
 
 INJURY RULE (strict): the user has an injury affecting: ${injuryAreas.join(', ')}. Never recommend, list or suggest any exercise that loads or stresses that area (for a knee: squats, lunges, jumps, leg press, step-ups, running, deep knee bends) - not even as an option or a "with caution" alternative. The exercise search results are already filtered, but check every name yourself before using it. You must still call search_exercises before recommending anything, and recommend only exercises that appear in its results. If nothing suitable comes back, search again using gentler search queries such as${injuryAreas.flatMap((a) => INJURY_SAFE_QUERIES[a] || []).slice(0, 4).map((q) => `"${q}"`).join(', ')}; if there is still nothing suitable, say so and suggest checking with a physiotherapist. Briefly tell the user you chose options with their injury in mind.`
+      : '';
+
+    const redFlagRule = redFlag
+      ? `
+
+RED FLAG (strict): the user describes symptoms that can be serious. Your answer must start by telling them to stop exercising now and get medical attention before doing any exercise. Do not suggest a workout or list exercises.`
       : '';
 
     const messages: BaseMessage[] = [
@@ -159,9 +195,9 @@ You have tools. Use them whenever they would make the answer more accurate or us
 - find_meals_by_ingredient, get_meal_details, find_healthy_meals, find_high_protein_meals, find_vegetarian_meals, search_meals_by_name, get_random_meal: find real meal ideas and recipes.
 - search_workout_demonstrations: find form videos/guides when the user asks how to do an exercise.
 - ask_workout_question: consult the fitness knowledge base for training, form, or nutrition guidance.
-Do not call tools for greetings or simple chit-chat. Never invent exercise or recipe names - use tool results. Whenever the user asks for exercise suggestions you MUST call search_exercises first and recommend only exercises that appear in its results (never list exercises from memory). Prioritize safety, and respect the user's injuries and equipment.
+Do not call tools for greetings or simple chit-chat. Never invent exercise or recipe names - use tool results. Whenever the user asks for exercise suggestions you MUST call search_exercises first and recommend only exercises that appear in its results (never list exercises from memory). For any question about training, technique, recovery, nutrition or health, and also when you suggest exercises, you MUST call ask_workout_question so your answer is backed by the knowledge base and can cite real websites; base the answer on what it returns, including its key form cues and safety advice. Prioritize safety, and respect the user's injuries and equipment.
 
-About the user: ${describeUser(userContext)}${injuryRule}`
+About the user: ${describeUser(userContext)}${injuryRule}${redFlagRule}`
       ),
       ...history.slice(-4).flatMap((h: { question: string; answer: string }) => [
         new HumanMessage(h.question),
@@ -177,7 +213,7 @@ About the user: ${describeUser(userContext)}${injuryRule}`
 
     for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
       // EVAL HOOK: times this model call and records its token usage (round number in the label)
-      const ai = await traceLlm(tracer, `agent_round_${round + 1}`, () => llm.invoke(messages), usageFromLangChain);
+      const ai = await traceLlm(tracer, `agent_round_${round + 1}`, () => (round < forcedLlms.length ? forcedLlms[round] : llm).invoke(messages), usageFromLangChain);
       messages.push(ai);
 
       const toolCalls = ai.tool_calls ?? [];
@@ -222,6 +258,29 @@ About the user: ${describeUser(userContext)}${injuryRule}`
           exerciseCandidates.push(...extractExerciseCandidates(output).map((c) => ({ ...c, name: c.title.replace(' (wger exercise database)', '') })));
         }
         messages.push(new ToolMessage({ content: output, tool_call_id: call.id ?? call.name }));
+      }
+    }
+
+    // Safety net: the model sometimes lists exercises from memory that the injury rules out. Ask it to redo the
+    // answer once, then drop any list line that is still unsafe.
+    if (injuryAvoid.length > 0) {
+      let unsafe = unsafeListedExercises(answer, injuryAvoid);
+      if (unsafe.length > 0) {
+        tracer?.note('injury_answer_rewritten', true);
+        messages.push(
+          new HumanMessage(
+            `Your last answer listed ${unsafe.join(', ')}, which could aggravate my injury (${injuryAreas.join(', ')}). Rewrite the answer without them, using only exercises that appeared in the search_exercises results. Write it as a fresh first answer: do not apologise or mention the earlier answer.`
+          )
+        );
+        const retry = await traceLlm(tracer, 'injury_rewrite', () => baseLlm.invoke(messages), usageFromLangChain);
+        answer = typeof retry.content === 'string' ? retry.content : answer;
+        unsafe = unsafeListedExercises(answer, injuryAvoid);
+      }
+      if (unsafe.length > 0) {
+        answer = answer
+          .split(/\r?\n/)
+          .filter((line) => !unsafe.some((u) => line.includes(u)))
+          .join('\n');
       }
     }
 

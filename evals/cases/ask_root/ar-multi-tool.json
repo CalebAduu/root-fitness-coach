@@ -47,7 +47,7 @@
     },
     {
       "check": "max_rounds",
-      "value": 4
+      "value": 6
     },
     {
       "check": "latency_under",

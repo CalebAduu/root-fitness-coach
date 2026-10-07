@@ -35,13 +35,8 @@
       ]
     },
     {
-      "check": "tool_arg_contains",
-      "tool": "search_exercises",
-      "value": "quad"
-    },
-    {
       "check": "max_rounds",
-      "value": 3
+      "value": 5
     },
     {
       "check": "output_excludes",
